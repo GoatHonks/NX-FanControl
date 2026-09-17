@@ -1,180 +1,221 @@
 # NX-FanControl
 
-**NX-FanControl** lets you fully customize your console’s fan curve.
+Full control over your Nintendo Switch's fan: custom fan curves, named profiles,
+per-game profiles that switch automatically, and your choice of which
+temperature sensor drives the fan.
+
+It has three parts:
+
+- **Sysmodule** — runs in the background from boot and actually drives the fan.
+- **Overlay** — a Tesla overlay for quick changes without leaving your game.
+- **NXFanControl Manager** — a homebrew app with the full editor.
+
+> **About this fork**
+>
+> This is a fork of [NX-FanControl](https://github.com/Lightos1/NX-FanControl).
+> **Every change in this fork was written by Claude Code**, Anthropic's AI
+> coding assistant. I'm not a developer: I described what I wanted, and tested
+> each change on my own console (a Switch Lite). See [CHANGELOG.md](./CHANGELOG.md)
+> for everything that changed from upstream v1.1.2.
 
 ---
 
 ## Features
 
-* **Custom fan curve**: Set your own temperature-to-fan-speed points, with as many points as you need for more precise control.
-* **Real-time monitoring**: Watch six temperature sources (SoC, PCB, Skin, and CPU/GPU/RAM via Horizon OC) plus fan speed, live on a graph.
-* **Selectable curve sensor**: Drive the fan from whichever of those six sources suits you.
-* **Per-game profiles**: Bind a profile to a game and it applies automatically when that game runs.
-* **Profiles**: Create named profiles (up to 8), each with its own fan curve, and switch between them from the overlay. Every profile also keeps a separate docked curve, so "Docked Profiles" still applies within whichever profile is active.
-* **NXFanControl Manager**: The main homebrew app — profile management with the system keyboard, full fan curve editing on a live graph, and every sysmodule setting. The overlay remains the quick in-game editor.
-* **Refresh interval settings**: Control how often different parts of the sysmodule update:
-    - **Docked check interval**: How often the sysmodule checks whether the device is docked.
-    - **Custom control check interval**: How often the sysmodule checks whether custom fan control is turned on.
-    - **Config reload interval**: How often the sysmodule re-reads your configuration.
-    - **High-temperature refresh interval**: A faster update rate used once temperatures get high, for quicker response.
-    - **Low-temperature refresh interval**: A slower update rate used when temperatures are low, to save resources.
-* **High-temperature threshold**: The temperature at which the sysmodule switches to the faster (high-temperature) refresh interval.
+- **Custom fan curves** — as many temperature/fan-speed points as you want, on a
+  live graph.
+- **Profiles** — up to 8 named profiles, each with its own handheld and docked
+  curve.
+- **Per-game profiles** — assign a profile to a game. It switches in when the
+  game starts and your previous profile comes back when the game closes.
+- **Presets** — start a new profile from a copy of an existing one, from
+  **Default**, or from **Stock-like**.
+- **Selectable curve sensor** — drive the fan from SoC, PCB, Skin, or the CPU,
+  GPU or RAM die temperature (Horizon OC needed for those three).
+- **Live monitoring** — every temperature and the fan speed, updated in real time.
+- **Docked profiles** — a separate curve for when the console is docked.
+- **Refresh settings** — control how often the sysmodule checks temperatures,
+  settings and dock state.
+
+---
+
+## Installation
+
+1. Download `NX-FanControl-v1.2.0.zip` from the
+   [latest release](https://github.com/GoatHonks/NX-FanControl/releases/latest).
+2. Extract it to the **root of your SD card**, merging with the folders already
+   there.
+3. **Reboot the console.**
+
+The zip contains:
+
+| File | What it is |
+|---|---|
+| `atmosphere/contents/00FF0000B378D640/` | The sysmodule, set to start at boot |
+| `switch/.overlays/NX-FanControl.ovl` | The overlay |
+| `switch/NX-FanControl/NXFanControl-Manager.nro` | The Manager app |
+
+**Requirements:** Atmosphère. To use the overlay you also need nx-ovlloader
+and an overlay menu such as Ultrahand. Horizon OC is optional, and only needed
+for the CPU, GPU and RAM temperature sensors.
+
+> **When updating, always reboot.** The sysmodule loads once at boot, so copying
+> new files over it doesn't replace the copy that's already running.
+
+Settings are stored in `config/NX-FanControl/config.ini` on the SD card.
+Upgrading from an earlier version converts your existing config automatically.
+
+---
+
+## Using the overlay
+
+The overlay is for quick changes while you play.
+
+**Main screen**
+
+| Item | What it does |
+|---|---|
+| **Enabled** | Turns custom fan control on or off |
+| **Profile** | Shows the active profile. Opens the profile screen |
+| **Per-Game Profiles** | Opens the per-game screen |
+| **Settings** | Opens the settings screen |
+| **State / Temp / Fan Speed** | Live dock state, the temperature of the sensor the curve uses, and fan speed |
+| **Fan Curve** | Live graph of the curve in use |
+| **Edit Handheld Curve / Edit Docked Curve** | Add, move and delete curve points |
+
+**Profile screen** — select a profile to make it active, **+ Add Profile** to
+make a copy of the active one, or hold **A** on **Delete Active Profile**.
+Renaming is done in the Manager.
+
+**Per-Game Profiles screen** — turn the feature on or off, and assign the game
+that's currently running. Select the game to pick a profile. With only one
+profile, it's assigned straight away.
+
+**Settings screen**
+
+| Setting | What it does |
+|---|---|
+| **Curve Sensor** | Opens a list of every sensor with its live reading |
+| **Docked Profiles** | Uses each profile's docked curve while docked |
+| **High Refresh Temp** | Above this temperature, the faster interval is used |
+| **Low Temp Interval** | How often the fan is updated while cool |
+| **High Temp Interval** | How often the fan is updated while hot |
+| **Config Refresh Interval** | How often the sysmodule checks for changed settings |
+| **Enable Refresh Interval** | How often it checks the Enabled switch while off |
+| **Docked Refresh Interval** | How often it checks whether the console is docked |
+
+---
+
+## Using NXFanControl Manager
+
+The Manager is the full editor. Launch it from the Homebrew Menu. It can do
+everything the overlay can, plus renaming, reordering and presets, which need
+the Switch's keyboard (an overlay can't open it).
+
+The header shows all six temperatures, fan speed and dock state live, with the
+sensor driving the curve highlighted. It also shows your console model, and
+whether the sysmodule and Horizon OC are running.
+
+| Button | Profiles | Fan Curve | Games | Settings |
+|---|---|---|---|---|
+| D-Pad Up/Down | Select profile | Select point | Select game | Select setting |
+| D-Pad Left/Right | — | Fan speed −/+ | — | Adjust value |
+| A | Make active | Add point | Per-game profiles on/off | Toggle |
+| X | Rename | Delete point | Remove assignment | — |
+| Y | New profile | Handheld / docked curve | — | — |
+| L / R | Move up / down | Temperature −/+ | — | — |
+| MINUS | Delete profile | — | — | — |
+| ZL / ZR | Switch tab | Switch tab | Switch tab | Switch tab |
+| PLUS | Exit | Exit | Exit | Exit |
+
+The **Games** tab lists every assigned game as `Game Name [Title ID]`. Games
+that have been archived or deleted show only their title ID.
 
 ---
 
 ## Profiles
 
-A profile is a named set of fan curves. The active profile is stored in
-`config.ini` and the sysmodule picks it up on its next config reload, so
-switching takes effect within a couple of seconds without a reboot.
+A profile is a named pair of curves: one for handheld, one for docked. Switching
+profiles swaps both. Changes take effect within about 2 seconds, with no reboot.
 
-Each profile stores **both** a handheld and a docked curve, so switching
-profiles swaps the pair together. "Docked Profiles" decides whether the docked
-curve of the active profile is used.
+**Default profile.** The first time this version runs, the Default profile is
+filled with the Stock-like curves so there's something sensible out of the box.
+If Default already held a curve, it's replaced — copy it to a new profile first
+if you want to keep it. After that, Default is an ordinary profile: edit,
+rename or delete it freely, and your changes are never reset.
 
-**NXFanControl Manager** (`switch/NX-FanControl/`) is the main app: profiles,
-full curve editing with a live graph, and every sysmodule setting. Renaming
-lives here rather than in the overlay because Tesla overlays cannot open the
-Switch's on-screen keyboard — the overlay loader has no way to launch a library
-applet, which `swkbd` requires. The app runs as normal homebrew, so it has full
-keyboard access.
+**Presets.** When creating a profile in the Manager you can start from a copy of
+the highlighted profile, from **Default**, or from **Stock-like**.
 
-**The overlay** is the quick in-game companion: switch profile, tweak a curve,
-toggle fan control, without leaving your game.
+**Stock-like is an approximation, not Nintendo's actual curve.** Nintendo's
+stock fan table is based on *skin* temperature, while curves here usually use
+the hotter *SoC* sensor. The preset keeps the shape of the stock curve — a ~20%
+floor, a long plateau, then a ramp — with the steps shifted to SoC
+temperatures. It also ramps to 100% at the top, where stock handheld stops at
+60%.
 
-| Manager | Profiles tab | Fan Curve tab | Games tab | Settings tab |
-|---|---|---|---|---|
-| D-Pad Up/Down | Move between profiles | Select point | Select game | Select setting |
-| D-Pad Left/Right | — | Fan speed −/+ | — | Adjust value |
-| A | Set active | Add point | Toggle per-game profiles | Toggle |
-| X | Rename | Remove point | Unassign game | — |
-| Y | New profile | Handheld / docked curve | — | — |
-| L / R | Reorder | Temperature −/+ | — | — |
-| MINUS | Delete profile | — | — | — |
-| ZL / ZR | Switch tab | Switch tab | Switch tab | Switch tab |
-| PLUS | Exit | Exit | Exit | Exit |
+**Limits.** Up to 8 profiles. Names can be up to 24 bytes, which is 24
+characters in English, and fewer in languages like Japanese.
 
-Existing configurations are upgraded automatically; see the note on the Default
-profile below.
+---
 
-### The Default profile
+## Per-game profiles
 
-Default is an ordinary profile you can edit, rename and delete like any other.
-It is simply seeded with the Stock-like curves the first time the tool runs, so
-there is something sensible there out of the box.
+1. Launch the game.
+2. Open the overlay and go to **Per-Game Profiles**.
+3. Select the game and pick a profile. This turns **Per-Game Profiles** on if it
+   was off.
 
-On first launch after upgrading, whatever curve previously sat in Default is
-replaced by the Stock-like curves. If you want to keep a curve you had there,
-copy it to a new profile before updating. After that first seeding, your edits
-to Default persist and are never reset.
+From then on:
 
-### Presets
+- **Game starts** — the active profile switches to the game's profile.
+- **Game closes** — the profile you had before comes back.
+- **You change profile by hand while playing** — your choice is kept when the
+  game closes.
+- **Reboot or crash mid-game** — your previous profile is still restored.
 
-When you create a profile in the Manager you can start it from a copy of an
-existing profile, from **Default**, or from **Stock-like**.
-
-**Stock-like is an approximation, not Nintendo's actual curve.** The stock fan
-table in the `tc` sysmodule is indexed on *skin* temperature, while this tool
-drives the fan from the TMP451 *SoC* sensor, which runs considerably hotter.
-The preset preserves the shape of the stock curve — a ~20% floor, a long
-plateau, then a ramp — with the breakpoints shifted into SoC terms. It also
-ramps to 100% at the top, where stock handheld stops at 60%, because an
-SoC-driven curve has to cover cases the skin sensor never sees.
-
-### Per-game profiles
-
-A profile can be bound to a specific game, so launching it switches the fan
-curve automatically. Games with no binding use the profile you selected
-manually.
-
-Bindings are made **from the overlay**, because it is the only part of the tool
-that runs while a game is in the foreground:
-
-1. Launch the game
-2. Open the overlay and select **Per-Game Profiles**, under **Profile**. The
-   running game is listed by name
-3. Select it and pick a profile (with only one profile, it's assigned
-   directly). Assigning turns the **Per-Game Profiles** switch on if it was off
-
-The Manager's **Games** tab lists every binding and can remove them. The
-sysmodule re-checks the running title every couple of seconds.
+Changes while a game is running take effect within about 2 seconds. Up to 64
+games can be assigned. To remove one, use the overlay's Per-Game Profiles
+screen while the game is running, or the Manager's **Games** tab at any time.
 
 ---
 
 ## Temperature sensors
 
-| Source | What it is |
-|---|---|
-| **SoC** | TMP451 remote diode at the SoC package. Hottest and most responsive — the default. |
-| **PCB** | TMP451 local channel, the sensor chip's own die, near the board. |
-| **Skin** | Nintendo's computed exterior-temperature estimate, read from the `tc` sysmodule. Runs far cooler than SoC; it is what the stock fan curve is indexed on. |
-| **CPU** | Tegra SOC_THERM CPU die temperature. Needs Horizon OC. |
-| **GPU** | Tegra SOC_THERM GPU die temperature. Needs Horizon OC. |
-| **RAM** | Tegra SOC_THERM memory die temperature (PLLX on Mariko). Needs Horizon OC. |
+| Sensor | What it measures | Needs |
+|---|---|---|
+| **SoC** | TMP451 sensor at the processor package. The default | — |
+| **PCB** | TMP451's own reading, near the board | — |
+| **Skin** | Nintendo's estimate of the console's outside temperature. Much cooler than SoC; the stock fan curve uses this one | — |
+| **CPU** | Temperature inside the CPU | Horizon OC |
+| **GPU** | Temperature inside the GPU | Horizon OC |
+| **RAM** | Temperature inside the memory controller (PLLX on Mariko models) | Horizon OC |
 
-Pick the source under **Settings → Curve sensor**, in either the Manager or the
-overlay. The overlay opens a list of all six with their live readings so you can
-choose directly; the Manager shows all six in its header at once, with the one
-driving the fan highlighted, which is the easier place to compare them while
-shaping a curve. The overlay's main screen shows only the sensor in use.
+Choose one under **Settings → Curve Sensor** in the overlay or Manager.
 
-If the selected sensor stops responding, the sysmodule falls back to SoC rather
-than leaving the fan unmanaged.
+If the chosen sensor stops responding, the fan uses SoC until it's back,
+rather than being left unmanaged. Without Horizon OC, CPU/GPU/RAM show **N/A**.
 
-SoC, PCB and Skin come from first-party services and work on any setup.
+**Re-tune your curve when you change sensor.** CPU and GPU run hotter than SoC
+and react to load sooner, while Skin runs much cooler, so the same temperature
+points behave very differently.
 
-**CPU / GPU / RAM need Horizon OC.** Those sensors live in the Tegra SOC_THERM
-block behind MMIO that a homebrew application cannot map — hbloader is granted
-no `map_io` capability, and that holds however the app is launched (title
-forwarding changes available memory, not kernel permissions). Horizon OC's
-sysmodule *can* read them, so NX-FanControl asks it over IPC. Install Horizon
-OC and they appear and become selectable; without it they show **N/A** and a
-curve set to one of them falls back to the SoC sensor.
-
-They read hotter than SoC and lead it under load, so a curve driven from CPU or
-GPU reacts earlier — but the numbers sit on a different scale, so re-tune your
-points rather than reusing SoC thresholds.
+**Why CPU/GPU/RAM need Horizon OC:** those sensors can only be read with
+hardware access that homebrew apps aren't given, however they're launched.
+Horizon OC's sysmodule can read them, so NX-FanControl asks it for the values.
 
 ---
 
-## Compiling
-
-Before building, ensure you have the [**devkitPro toolchain**](https://devkitpro.org/wiki/Getting_Started) installed and properly set up.
-
-Clone the repository (including submodules) and build:
-
-```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_FORK.git --recurse-submodules
-cd YOUR_FORK
-./build.sh
-```
-
-Building the overlay also needs the `switch-curl`, `switch-zlib`,
-`switch-mbedtls` and `switch-libjson-c` portlibs, and the Manager needs
-`switch-sdl2`, `switch-sdl2_ttf` and `switch-sdl2_gfx`.
-
-### Tests
-
-The config, profile, preset and sensor-selection logic has host-side tests that
-run on your PC with a normal `gcc` (not devkitPro):
-
-```bash
-./tests/run.sh
-```
-
----
-
-## Common Issues & Fixes
+## Common issues
 
 ### Fan always stays on
 
-**Background:** the Switch has its own fan controller, Nintendo's `tc`
-sysmodule, and it keeps running alongside NX-FanControl. NX-FanControl updates
-the fan far more often, so it normally wins, but `tc` still applies its own
-curve underneath.
+The Switch has its own fan controller, Nintendo's `tc` sysmodule, and it keeps
+running alongside NX-FanControl. NX-FanControl updates the fan far more often,
+so it normally wins, but `tc` still applies its own curve underneath.
 
-**Suggested fix:** change `tc`'s curve through Atmosphère by adding these lines
-to `atmosphere/config/system_settings.ini`, then reboot:
+A suggested fix is to change `tc`'s curve through Atmosphère by adding these
+lines to `atmosphere/config/system_settings.ini`, then rebooting:
 
 ```ini
 [tc]
@@ -187,39 +228,90 @@ touchable_tskin=u32!0xEA60
 
 Before you do:
 
-- **Add these lines, don't replace the file.** Atmosphère reads only one
-  `system_settings.ini`. If you already have one, copying a new file over it
-  deletes every setting you had.
-- **Know what it changes.** It makes `tc`'s own curve more aggressive (100% fan
-  at about 54°C skin temperature, where stock handheld stops at 60%), and raises
-  the skin temperature limits Nintendo uses for heat protection to 60°C.
+- **Add these lines; don't replace the file.** Atmosphère reads only one
+  `system_settings.ini`, so copying a new file over yours deletes every setting
+  you had.
+- **Know what it changes.** It makes `tc`'s curve more aggressive (100% fan at
+  about 54 °C skin temperature, where stock handheld stops at 60%), and raises
+  the skin temperature limits Nintendo uses for heat protection to 60 °C.
 
 These lines come from the `[tc]` section of
 [Dominatorul's Easy-Setup `system_settings.ini`](https://github.com/dominatorul/Easy-Setup/blob/main/data/Optimizer/EmuNAND/system_settings.ini).
-That full file also changes about 80 unrelated system settings (telemetry,
-background downloads, cloud saves, USB 3.0 and more), so only use the whole
-file if you want all of those.
+That full file also changes about 80 unrelated settings (telemetry, background
+downloads, cloud saves, USB 3.0 and more), so only use the whole file if you
+want all of those.
+
+### Changes don't seem to apply after updating
+
+Reboot the console. See [Installation](#installation).
+
+### CPU / GPU / RAM show N/A
+
+Horizon OC isn't installed or isn't running. The Manager's header says whether
+it was detected.
+
+### Something else isn't working
+
+The sysmodule writes what it's doing to `config/NX-FanControl/log.txt`,
+including profile switches and sensor problems. The log starts fresh at every
+boot.
+
+---
+
+## Building from source
+
+Install the [devkitPro toolchain](https://devkitpro.org/wiki/Getting_Started)
+with the `switch-dev` group, plus these packages:
+
+```bash
+pacman -S switch-curl switch-zlib switch-mbedtls switch-libjson-c switch-sdl2 switch-sdl2_ttf switch-sdl2_gfx zip
+```
+
+The first four are needed by the overlay library, the SDL2 packages by the
+Manager, and `zip` to package the release.
+
+Then:
+
+```bash
+git clone https://github.com/GoatHonks/NX-FanControl.git --recurse-submodules
+cd NX-FanControl
+./build.sh
+```
+
+The files are placed in `dist/`, along with `dist/NX-FanControl.zip`.
+
+### Tests
+
+The config, profile, preset, per-game and sensor-selection logic has a test
+suite that runs on your PC with a normal `gcc` (not devkitPro):
+
+```bash
+./tests/run.sh
+```
 
 ---
 
 ## Credits
-* **Zathawo** - Upstream
-* **Dominatorul** - Original fork
-* **CtCaer** - TMP451 temperature driver (GPLv2)
-* **ppkantorski** - libultrahand / Tesla overlay library (GPLv2)
-* **CompuPhase** - minIni (Apache 2.0)
-* **Souldbminer, Lightos_ and Horizon OC contributors** - clock-manager IPC client, used for the CPU/GPU/RAM die temperatures (GPLv2)
+
+- **Zathawo** — original NX-FanControl
+- **Dominatorul** — fork
+- **Lightos_** — NX-FanControl, the upstream this fork is based on
+- **CTCaer** — TMP451 temperature driver
+- **ppkantorski** — libultrahand / Tesla overlay library
+- **CompuPhase** — minIni
+- **Souldbminer, Lightos_ and Horizon OC contributors** — Horizon OC IPC client,
+  used for the CPU/GPU/RAM temperatures
+- **Status-Monitor-Overlay** — reference for how those temperatures are obtained
+- **Claude Code** (Anthropic) — wrote all the changes in this fork
 
 ## License
 
 NX-FanControl as a whole is distributed under the **GNU General Public License,
 version 2** — see [LICENSE](./LICENSE). It links GPLv2 components (the
-libultrahand overlay library, CtCaer's TMP451 driver and the Horizon OC IPC
-client), which requires the
-combined work to carry the same licence.
+libultrahand overlay library, CTCaer's TMP451 driver and the Horizon OC IPC
+client), which requires the combined work to carry the same licence.
 
-The original authors' code remains available under the **MIT License**, which is
+The original authors' code remains available under the **MIT License**,
 preserved unchanged in [LICENSE.MIT](./LICENSE.MIT).
 
-[COPYING.md](./COPYING.md) lists every component and its licence, including the
-Apache 2.0 linking exception that covers minIni.
+[COPYING.md](./COPYING.md) lists every component and library, and its licence.
