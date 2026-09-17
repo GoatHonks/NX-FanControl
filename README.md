@@ -42,17 +42,17 @@ keyboard access.
 **The overlay** is the quick in-game companion: switch profile, tweak a curve,
 toggle fan control, without leaving your game.
 
-| Manager | Profiles tab | Fan Curve tab | Settings tab |
-|---|---|---|---|
-| D-Pad Up/Down | Move between profiles | Select point | Select setting |
-| D-Pad Left/Right | — | Fan speed −/+ | Adjust value |
-| A | Set active | Add point | Toggle |
-| X | Rename | Remove point | — |
-| Y | New profile | Handheld / docked curve | — |
-| L / R | Reorder | Temperature −/+ | — |
-| MINUS | Delete profile | — | — |
-| ZL / ZR | Switch tab | Switch tab | Switch tab |
-| PLUS | Exit | Exit | Exit |
+| Manager | Profiles tab | Fan Curve tab | Games tab | Settings tab |
+|---|---|---|---|---|
+| D-Pad Up/Down | Move between profiles | Select point | Select game | Select setting |
+| D-Pad Left/Right | — | Fan speed −/+ | — | Adjust value |
+| A | Set active | Add point | Toggle per-game profiles | Toggle |
+| X | Rename | Remove point | Unassign game | — |
+| Y | New profile | Handheld / docked curve | — | — |
+| L / R | Reorder | Temperature −/+ | — | — |
+| MINUS | Delete profile | — | — | — |
+| ZL / ZR | Switch tab | Switch tab | Switch tab | Switch tab |
+| PLUS | Exit | Exit | Exit | Exit |
 
 Existing configurations are upgraded automatically; see the note on the Default
 profile below.
@@ -143,9 +143,22 @@ Before building, ensure you have the [**devkitPro toolchain**](https://devkitpro
 Clone the repository (including submodules) and build:
 
 ```bash
-git clone https://github.com/Lightos1/NX-FanControl.git --recurse-submodules
-cd NX-FanControl
+git clone https://github.com/YOUR_USERNAME/YOUR_FORK.git --recurse-submodules
+cd YOUR_FORK
 ./build.sh
+```
+
+Building the overlay also needs the `switch-curl`, `switch-zlib`,
+`switch-mbedtls` and `switch-libjson-c` portlibs, and the Manager needs
+`switch-sdl2`, `switch-sdl2_ttf` and `switch-sdl2_gfx`.
+
+### Tests
+
+The config, profile, preset and sensor-selection logic has host-side tests that
+run on your PC with a normal `gcc` (not devkitPro):
+
+```bash
+./tests/run.sh
 ```
 
 ---

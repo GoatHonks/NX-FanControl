@@ -38,7 +38,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 #   NACP building is skipped as well.
 #---------------------------------------------------------------------------------
 APP_TITLE	:=	NX-FanControl
-APP_VERSION :=	1.1.2
+APP_VERSION :=	1.2.0
 
 TARGET		:=	$(APP_TITLE)
 BUILD		:=	build
@@ -59,6 +59,7 @@ CFLAGS	:=	-g -Wall -O2 -ffunction-sections \
 			$(ARCH) $(DEFINES)
 
 CFLAGS	+=	$(INCLUDE) -D__SWITCH__
+CFLAGS	+=	-DAPP_VERSION_STRING="\"v$(APP_VERSION)\""
 
 # Enable appearance overriding
 UI_OVERRIDE_PATH := /config/NX-FanControl/
