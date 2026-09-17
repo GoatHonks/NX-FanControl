@@ -1,3 +1,4 @@
+#include <math.h>
 #include <fancontrol.hpp>
 #include <algorithm>
 
@@ -34,4 +35,12 @@ float InterpolateFanLevel(const TemperaturePoint *tbl, u32 count, float tempC) {
     }
 
     return tbl[count - 1].fanLevel_f;
+}
+
+int RoundToInt(float value) {
+    return (int)lroundf(value);
+}
+
+int LevelToPercent(float level) {
+    return RoundToInt(level * 100.0f);
 }

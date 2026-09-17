@@ -58,7 +58,10 @@ void CurveMenu::update() {
     counter++;
 
     if (counter % 6 == 0) {
-        this->_liveTemp = GetSOCTemperature();
+        /* Must be the sensor the curve is actually driven from, not the SoC
+         * one - otherwise the marker sits at the wrong place on the very graph
+         * being edited. */
+        this->_liveTemp = ReadSensorOrNegative(static_cast<FanSensor>(GetFanSensor()));
     }
 }
 

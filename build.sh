@@ -1,9 +1,19 @@
 #!/bin/bash
 
+# Stop at the first failure, otherwise a broken build still "succeeds" and
+# bundles whatever stale binaries happen to be lying around.
+set -e
+
 ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 DIST_DIR="$ROOT_DIR/dist"
 CORES="$(nproc --all)"
 echo "CORES: $CORES"
+
+echo
+echo "*** building minIni ***"
+cd common/libs/minIni
+make -j$CORES
+cd "$ROOT_DIR"
 
 echo
 echo "*** building sysmodule ***"
@@ -14,6 +24,12 @@ cd "$ROOT_DIR"
 echo
 echo "*** building overlay ***"
 cd overlay
+make -j$CORES
+cd "$ROOT_DIR"
+
+echo
+echo "*** building manager ***"
+cd manager
 make -j$CORES
 cd "$ROOT_DIR"
 
@@ -32,6 +48,9 @@ cp -vf "$ROOT_DIR/sysmodule/toolbox.json" "$DIST_DIR/atmosphere/contents/$TITLE_
 
 mkdir -p "$DIST_DIR/switch/.overlays"
 cp -vf "$ROOT_DIR/overlay/NX-FanControl.ovl" "$DIST_DIR/switch/.overlays/NX-FanControl.ovl"
+
+mkdir -p "$DIST_DIR/switch/NX-FanControl"
+cp -vf "$ROOT_DIR/manager/NXFanControl-Manager.nro" "$DIST_DIR/switch/NX-FanControl/NXFanControl-Manager.nro"
 
 echo
 echo "*** packaging NX-FanControl.zip ***"

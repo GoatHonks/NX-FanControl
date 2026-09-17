@@ -39,9 +39,9 @@ include $(DEVKITPRO)/libnx/switch_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	$(notdir $(CURDIR))
 BUILD		:=	build
-SOURCES		:=	source source/soc source/fan ../common/source
+SOURCES		:=	source source/soc source/fan ../common/source ../common/libs/hocclk/source
 DATA		:=	data
-INCLUDES	:=	include ../common/include
+INCLUDES	:=	include ../common/include ../common/libs/hocclk/include
 LIBNAMES	:=	minIni
 #ROMFS	:=	romfs
 

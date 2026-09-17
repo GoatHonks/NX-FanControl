@@ -7,12 +7,16 @@ class CurveStore {
 public:
     TemperaturePoint points[MAX_TABLE_ENTRIES];
     u32 count = 0;
-    const char* section = CurveSection;
 
     CurveStore() = default;
-    explicit CurveStore(const char* section) : section(section) {}
+    explicit CurveStore(bool docked) : _docked(docked) {}
 
-    bool isDockedProfile() const;
+    /* Points this store at a profile's curve. Does not load; call
+     * loadOrDefault() afterwards. */
+    void bindToProfile(u32 id);
+
+    bool isDockedProfile() const { return this->_docked; }
+    const char* sectionName() const { return this->_section.c_str(); }
 
     void loadOrDefault();
     bool persist();
@@ -25,12 +29,22 @@ public:
     void setLevel(u32 index, float level);
 
     bool tempTaken(int temperature_c, u32 exceptIndex) const;
+
+private:
+    bool _docked = false;
+    std::string _section = CurveSection;
 };
 
 extern CurveStore g_curve;
 extern CurveStore g_dockedCurve;
 extern CurveStore* g_editCurve;
 extern std::string g_navJump;
+
+/* Rebinds both curve stores to the given profile and loads them. */
+void BindCurvesToProfile(u32 id);
+
+/* Rebinds to whichever profile is currently active in the config. */
+void BindCurvesToActiveProfile();
 
 std::string FormatPointLabel(const TemperaturePoint& point);
 

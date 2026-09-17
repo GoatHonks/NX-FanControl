@@ -1,22 +1,25 @@
 #include "main_menu.hpp"
 #include "curve_menu.hpp"
 #include "settings.hpp"
+#include "profile_menu.hpp"
+#include <cmath>
 
 MainMenu::MainMenu() {
     this->_dockedOverride = IsDockedOverride(ConfigSection);
 
-    g_curve.loadOrDefault();
+    BindCurvesToActiveProfile();
+    g_editCurve = &g_curve;
     if (this->_dockedOverride) {
-        g_dockedCurve.loadOrDefault();
         this->_isDocked = IsDocked();
     }
 
     this->_enabled = IsEnabled(ConfigSection);
 
     this->_enabledBtn = new tsl::elm::ToggleListItem("Enabled", this->_enabled);
+    this->_profileBtn = new tsl::elm::ListItem("Profile", ActiveProfileName());
     this->_settingBtn = new tsl::elm::ListItem("Settings", ">");
     this->_modeLabel = new tsl::elm::ListItem("State: --");
-    this->_socTempLabel = new tsl::elm::ListItem("SOC Temp: --C");
+    this->_socTempLabel = new tsl::elm::ListItem("Temp: --C");
     this->_fanSpeedLabel = new tsl::elm::ListItem("Fan Speed: --%");
     this->_curveBtn = new tsl::elm::ListItem(HandheldCurveButtonLabel(), ">");
     if (this->_dockedOverride) {
@@ -44,6 +47,17 @@ tsl::elm::Element* MainMenu::createUI() {
         return true;
     });
     list->addItem(this->_enabledBtn);
+
+    list->addItem(new tsl::elm::CategoryHeader("Profile", true));
+    this->_profileBtn->setClickListener([](uint64_t keys) {
+        if (keys & HidNpadButton_A) {
+            g_navJump.clear();
+            tsl::swapTo<ProfileMenu>();
+            return true;
+        }
+        return false;
+    });
+    list->addItem(this->_profileBtn);
 
     list->addItem(new tsl::elm::CategoryHeader("Settings", true));
     this->_settingBtn->setClickListener([](uint64_t keys) {
@@ -106,17 +120,25 @@ void MainMenu::update() {
         this->_isDocked = IsDocked();
         this->_modeLabel->setText(std::string("State: ") + (this->_isDocked ? "Docked" : "Handheld"));
 
-        float socTemp = GetSOCTemperature();
-        this->_liveTemp = socTemp;
-        if (socTemp >= 0) {
-            this->_socTempLabel->setText("SOC Temp: " + std::to_string((int)socTemp) + "C");
+        /* Only the sensor the curve follows is shown; the manager is where
+         * you compare all of them. */
+        const FanSensor active = (FanSensor)GetFanSensor();
+        const float value = ReadSensorOrNegative(active);
+        this->_liveTemp = value;
+
+        std::string text = std::string(GetSensorName(active)) + " Temp: ";
+        if (value >= 0) {
+            /* Rounded, matching the graph readout: truncating here made the
+             * two disagree by a degree. */
+            text += std::to_string(RoundToInt(value)) + "C";
         } else {
-            this->_socTempLabel->setText("SOC Temp: Error");
+            text += SensorNeedsHorizonOc(active) ? "N/A (Horizon OC)" : "Error";
         }
+        this->_socTempLabel->setText(text);
 
         float fanSpeed = GetFanSpeed();
         if (fanSpeed >= 0) {
-            this->_fanSpeedLabel->setText("Fan Speed: " + std::to_string((int)fanSpeed) + "%");
+            this->_fanSpeedLabel->setText("Fan Speed: " + std::to_string(RoundToInt(fanSpeed)) + "%");
         } else {
             this->_fanSpeedLabel->setText("Fan Speed: Error");
         }

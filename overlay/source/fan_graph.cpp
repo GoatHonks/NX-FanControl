@@ -159,7 +159,7 @@ void DrawFanCurveGraph(tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h,
     const s32 headerBaseline = y + 22;
     renderer->drawString("FAN %", false, gx + 12, headerBaseline, TickFont, renderer->a(ColorTick));
 
-    const std::string readout = haveLive ? std::to_string((int)std::lround(liveTempC)) + "C / " + std::to_string((int)std::lround(liveLevel * 100.0f)) + "%" : std::string("--C / --%");
+    const std::string readout = haveLive ? std::to_string(RoundToInt(liveTempC)) + "C / " + std::to_string(LevelToPercent(liveLevel)) + "%" : std::string("--C / --%");
     const s32 readoutWidth = renderer->getTextDimensions(readout, false, HeaderFont).first;
     const s32 readoutX = gx + gw - 12 - readoutWidth;
 

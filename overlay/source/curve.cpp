@@ -2,8 +2,8 @@
 
 #include <algorithm>
 
-CurveStore g_curve;
-CurveStore g_dockedCurve(DockedOverrideCurveSection);
+CurveStore g_curve(false);
+CurveStore g_dockedCurve(true);
 CurveStore* g_editCurve = &g_curve;
 std::string g_navJump;
 
@@ -26,23 +26,40 @@ static const TemperaturePoint DefaultCurve[] = {
 static const u32 DefaultCurveCount = sizeof(DefaultCurve) / sizeof(DefaultCurve[0]);
 
 std::string FormatPointLabel(const TemperaturePoint& point) {
-    return std::to_string(point.temperature_c) + "C  |  " + std::to_string((int)(point.fanLevel_f * 100)) + "%";
+    return std::to_string(point.temperature_c) + "C  |  " + std::to_string(LevelToPercent(point.fanLevel_f)) + "%";
 }
 
 std::string HandheldCurveButtonLabel() {
     return IsDockedOverride(ConfigSection) ? "Edit Handheld Curve" : "Edit Fan Curve";
 }
 
-bool CurveStore::isDockedProfile() const {
-    return strcmp(this->section, DockedOverrideCurveSection) == 0;
+void CurveStore::bindToProfile(u32 id) {
+    char section[ProfileSectionSize];
+    GetProfileSection(id, this->_docked, section, sizeof(section));
+    this->_section = section;
+}
+
+void BindCurvesToProfile(u32 id) {
+    g_curve.bindToProfile(id);
+    g_curve.loadOrDefault();
+
+    g_dockedCurve.bindToProfile(id);
+    if (IsDockedOverride(ConfigSection)) {
+        g_dockedCurve.loadOrDefault();
+    }
+}
+
+void BindCurvesToActiveProfile() {
+    EnsureProfilesInitialized();
+    BindCurvesToProfile(GetActiveProfileId());
 }
 
 void CurveStore::loadOrDefault() {
-    this->count = LoadCurve(this->section, this->points, MAX_TABLE_ENTRIES);
+    this->count = LoadCurve(this->sectionName(), this->points, MAX_TABLE_ENTRIES);
     if (this->count == 0) {
         memcpy(this->points, DefaultCurve, sizeof(DefaultCurve));
         this->count = DefaultCurveCount;
-        SaveCurve(this->section, this->points, this->count);
+        SaveCurve(this->sectionName(), this->points, this->count);
         if (!this->isDockedProfile()) {
             SetEnabled(ConfigSection, true);
         }
@@ -56,7 +73,7 @@ void CurveStore::sortByTemp() {
 
 bool CurveStore::persist() {
     this->sortByTemp();
-    return SaveCurve(this->section, this->points, this->count);
+    return SaveCurve(this->sectionName(), this->points, this->count);
 }
 
 bool CurveStore::tempTaken(int temperature_c, u32 exceptIndex) const {

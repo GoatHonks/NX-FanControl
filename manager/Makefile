@@ -37,18 +37,18 @@ include $(DEVKITPRO)/libnx/switch_rules
 #   of a homebrew executable (.nro). This is intended to be used for sysmodules.
 #   NACP building is skipped as well.
 #---------------------------------------------------------------------------------
-APP_TITLE	:=	NX-FanControl
-APP_VERSION :=	1.1.2
+APP_TITLE	:=	NXFanControl Manager
+APP_VERSION :=	1.2.0
+APP_AUTHOR	:=	Goat&Claude
 
-TARGET		:=	$(APP_TITLE)
+TARGET		:=	NXFanControl-Manager
 BUILD		:=	build
 # Include libultrahand source directories
-SOURCES		:=	source lib/libultrahand/common lib/libultrahand/libultra/source lib/libultrahand/libtesla/source ../common/source ../common/libs/hocclk/source
+SOURCES		:=	source ../common/source ../common/libs/hocclk/source
 DATA		:=	data
-INCLUDES	:=	include source lib/libultrahand/common lib/libultrahand/libultra/include lib/libultrahand/libtesla/include ../common/include ../common/libs/hocclk/include
+INCLUDES	:=	source ../common/include ../common/libs/hocclk/include
 LIBNAMES	:=	minIni
 
-NO_ICON		:=  1
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -60,17 +60,8 @@ CFLAGS	:=	-g -Wall -O2 -ffunction-sections \
 
 CFLAGS	+=	$(INCLUDE) -D__SWITCH__
 
-# Enable appearance overriding
-UI_OVERRIDE_PATH := /config/NX-FanControl/
-CFLAGS += -DUI_OVERRIDE_PATH="\"$(UI_OVERRIDE_PATH)\""
 
-# For theme / wallpaper loading in GUI class method (add to project if theme does not appear)
-INITIALIZE_IN_GUI_DIRECTIVE := 1
-CFLAGS += -DINITIALIZE_IN_GUI_DIRECTIVE=$(INITIALIZE_IN_GUI_DIRECTIVE)
 
-# Disable fstream
-NO_FSTREAM_DIRECTIVE := 1
-CFLAGS += -DNO_FSTREAM_DIRECTIVE=$(NO_FSTREAM_DIRECTIVE)
 
 CXXFLAGS	:= $(CFLAGS) -fno-exceptions -std=c++20
 
@@ -78,7 +69,7 @@ ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map) -Wl,--allow-multiple-definition
 
 # Fixed library linking - removed non-existent libraries and used correct library paths
-LIBS	:= $(foreach lib,$(LIBNAMES),-l$(lib)) -lnx -lstdc++ -lm
+LIBS	:= $(foreach lib,$(LIBNAMES),-l$(lib)) -lSDL2_ttf -lSDL2_gfx -lSDL2 -lEGL -lglapi -ldrm_nouveau -lfreetype -lharfbuzz -lfreetype -lpng16 -lbz2 -lz -lnx -lstdc++ -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
@@ -199,11 +190,11 @@ DEPENDS	:=	$(OFILES:.o=.d)
 #---------------------------------------------------------------------------------
 # main targets
 #---------------------------------------------------------------------------------
-all	:	 $(OUTPUT).ovl
+all	:	 $(OUTPUT).nro
 
-$(OUTPUT).ovl		:	$(OUTPUT).elf $(OUTPUT).nacp
+$(OUTPUT).nro		:	$(OUTPUT).elf $(OUTPUT).nacp
 	@elf2nro $< $@ $(NROFLAGS)
-	@echo "built ... $(notdir $(OUTPUT).ovl)"
+	@echo "built ... $(notdir $(OUTPUT).nro)"
 
 $(OUTPUT).elf	:	$(OFILES)
 

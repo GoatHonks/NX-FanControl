@@ -1,3 +1,5 @@
+#pragma once
+
 #include <tesla.hpp>
 #include <fancontrol.hpp>
 #include "fan_graph.hpp"
@@ -16,6 +18,7 @@ private:
     tsl::elm::ListItem* _fanSpeedLabel;
     tsl::elm::ListItem* _modeLabel;
     tsl::elm::ListItem* _settingBtn;
+    tsl::elm::ListItem* _profileBtn;
     tsl::elm::ListItem* _curveBtn;
     tsl::elm::ListItem* _dockedCurveBtn = nullptr;
 

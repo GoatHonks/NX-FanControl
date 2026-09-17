@@ -25,6 +25,15 @@ bool ValidateFanCurveTable(const TemperaturePoint *tbl, u32 count) {
 
 static bool IntervalElapsed(u64 *last, u64 intervalNs) {
     u64 now = armGetSystemTick();
+
+    /* If the counter ever reads lower than the stamp we kept - which is what a
+     * counter reset across sleep would look like - treat the interval as
+     * elapsed and re-stamp, rather than subtracting into a huge value. */
+    if (now < *last) {
+        *last = now;
+        return true;
+    }
+
     if (armTicksToNs(now - *last) < intervalNs) {
         return false;
     }
@@ -60,12 +69,50 @@ static bool LoadCurveAlloc(const char *curveSection, TemperaturePoint **outTable
     return true;
 }
 
+static bool SwapCurveTable(const char *curveSection, FanHysteresisState *fanState);
+
+/* Profile currently in effect: the running game's mapping when per-game
+ * profiles are on, otherwise the manually selected profile. */
+static u32 GetEffectiveProfileId() {
+    return ResolveProfileForTitle(ctx->titleId);
+}
+
 static const char *GetProfileCurve() {
-    if (ctx->isDocked) {
-        return DockedOverrideCurveSection;
+    /* Resolved fresh on every call so that a profile switch written by the
+     * overlay or the manager NRO is picked up on the next config reload. */
+    static char section[ProfileSectionSize];
+    GetProfileSection(GetEffectiveProfileId(), ctx->isDocked, section, sizeof(section));
+    return section;
+}
+
+static void RefreshRunningTitle(FanHysteresisState *fanState) {
+    if (!ctx->gameProfiles) {
+        /* Forget any remembered title so turning the feature back on
+         * re-resolves from scratch. */
+        ctx->titleId = 0;
+        return;
     }
 
-    return CurveSection;
+    static u64 lastCheckTime = armGetSystemTick();
+    if (!IntervalElapsed(&lastCheckTime, MsToNs(ctx->refreshConfig.titleRefreshIntervalMs))) {
+        return;
+    }
+
+    const u64 titleId = GetRunningTitleId();
+    if (titleId == ctx->titleId) {
+        return;
+    }
+
+    const u32 before = GetEffectiveProfileId();
+    ctx->titleId = titleId;
+    const u32 after = GetEffectiveProfileId();
+
+    /* Only touch the fan table when the resolved profile actually differs;
+     * most game launches map to the same profile. */
+    if (before != after) {
+        SwapCurveTable(GetProfileCurve(), fanState);
+        WriteLog("Switched profile for running title");
+    }
 }
 
 static bool SwapCurveTable(const char *curveSection, FanHysteresisState *fanState) {
@@ -91,6 +138,9 @@ static void LoadConfig() {
     ctx->refreshConfig.configRefreshIntervalMs = std::max(GetRefreshInterval(ConfigSection, KeyConfigRefreshIntervalMs, DefaultConfigRefreshIntervalMs), MinCheckIntervalMs);
     ctx->refreshConfig.enableRefreshIntervalMs = std::max(GetRefreshInterval(ConfigSection, KeyEnableRefreshIntervalMs, DefaultEnableRefreshIntervalMs), MinCheckIntervalMs);
     ctx->refreshConfig.dockedRefreshIntervalMs = std::max(GetRefreshInterval(ConfigSection, KeyDockedRefreshIntervalMs, DefaultDockedRefreshIntervalMs), MinCheckIntervalMs);
+    ctx->refreshConfig.titleRefreshIntervalMs  = std::max(GetRefreshInterval(ConfigSection, KeyTitleRefreshIntervalMs, DefaultTitleRefreshIntervalMs), MinCheckIntervalMs);
+    ctx->gameProfiles                          = IsGameProfilesEnabled();
+    ctx->sensor                                = GetFanSensor();
 }
 
 void InitContext(Context *_ctx) {
@@ -98,6 +148,15 @@ void InitContext(Context *_ctx) {
 
     ctx->table          = nullptr;
     ctx->tableEntries   = 0;
+
+    /* Adopts any pre-profile config as profile 0 on first boot after upgrade. */
+    EnsureProfilesInitialized();
+
+    /* Keeps the Default profile pinned to the reference curves, migrating any
+     * curve the user had there into an editable profile on first run. */
+    EnsureDefaultProfileIsStock();
+
+    ctx->titleId        = 0;
     ctx->dockedOverride = IsDockedOverride(ConfigSection);
     ctx->isDocked       = ctx->dockedOverride && IsDocked();
 
@@ -208,6 +267,7 @@ void LoopFanController() {
     for (;;) {
         RefreshConfig(ConfigSection, &fanState);
         RefreshDockedState(&fanState);
+        RefreshRunningTitle(&fanState);
 
         if (!ctx->enabled || ctx->table == nullptr) {
             svcSleepThread(MsToNs(ctx->refreshConfig.enableRefreshIntervalMs));
@@ -216,16 +276,21 @@ void LoopFanController() {
 
         bool readOk = false;
         for (u32 retry = 0; retry < TEMP_READ_RETRIES; ++retry) {
-            rs = Tmp451GetSocTemp(&tempC);
-            if (R_SUCCEEDED(rs)) {
+            if (ReadSensor(static_cast<FanSensor>(ctx->sensor), &tempC)) {
                 readOk = true;
                 break;
             }
         }
 
         if (!readOk) {
-            WriteLog("Tmp451GetSocTemp failed after retries");
-            tempC = 70.0f;
+            /* Fall back to the SoC sensor before giving up, so a configured
+             * source that stops responding cannot strand the fan. */
+            if (ReadSensor(FanSensor_Soc, &tempC)) {
+                WriteLog("Configured sensor failed, using SoC");
+            } else {
+                WriteLog("All temperature reads failed");
+                tempC = 70.0f;
+            }
         }
 
         float target = UpdateFanHysteresis(&fanState, tempC);

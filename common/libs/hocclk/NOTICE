@@ -1,0 +1,20 @@
+Horizon OC clock-manager IPC client
+===================================
+
+These files are vendored unmodified from the Horizon OC project (by way of
+Status-Monitor-Overlay, which ships the same client). They are used to read the
+CPU / GPU / RAM die temperatures that Horizon OC's sysmodule exposes over IPC.
+Those sensors live in the Tegra SOC_THERM block behind MMIO that a homebrew
+application cannot map, so asking Horizon OC is the only way to reach them
+without writing a SOC_THERM driver.
+
+They are licensed under the GNU GPL v2, alongside the sys-clk Beer-Ware notice,
+and those notices are preserved verbatim in each file. NX-FanControl as a whole
+is distributed under the GNU GPL v2 (see ../../../LICENSE), so these files are
+under the same terms as the project that uses them.
+
+Copyright (c) Souldbminer, Lightos_ and Horizon OC Contributors.
+
+Do not modify these files. Keeping them unmodified makes it obvious what is
+upstream and what is ours, and makes updating to a newer client a straight
+copy.

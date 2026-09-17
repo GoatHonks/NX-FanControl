@@ -1,3 +1,5 @@
+#pragma once
+
 #include <tesla.hpp>
 #include <fancontrol.hpp>
 #include "fan_graph.hpp"

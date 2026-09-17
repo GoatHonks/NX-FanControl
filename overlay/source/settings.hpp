@@ -1,3 +1,5 @@
+#pragma once
+
 #include <tesla.hpp>
 
 class Settings : public tsl::Gui {
@@ -11,6 +13,10 @@ private:
     u32 _dockedRefreshIntervalMs;
 
     void addStepper(tsl::elm::List* list, const std::string& title, const char* unit, u32* value, u32 minValue, u32 maxValue, u32 step);
+
+    /* Writes the stepper values out. Called both on exit and before leaving
+     * for another screen, so edits are never dropped by navigating away. */
+    void persist();
 
 public:
     Settings();

@@ -1,5 +1,6 @@
 #include "settings.hpp"
 #include "main_menu.hpp"
+#include "sensor_menu.hpp"
 #include <algorithm>
 
 namespace {
@@ -45,6 +46,20 @@ tsl::elm::Element* Settings::createUI() {
 
     auto list = new tsl::elm::List();
 
+    auto sensorBtn = new tsl::elm::ListItem(CurveSensorRowLabel, CurveSensorRowValue());
+    sensorBtn->setClickListener([this](uint64_t keys) {
+        if (!(keys & HidNpadButton_A)) {
+            return false;
+        }
+        /* Save first: the picker replaces this screen, so anything typed into
+         * the steppers would otherwise be lost. */
+        this->persist();
+        g_navJump.clear();
+        tsl::swapTo<SensorMenu>();
+        return true;
+    });
+    list->addItem(sensorBtn);
+
     auto dockedOverrideBtn = new tsl::elm::ToggleListItem("Docked Profiles", this->_dockedOverride);
     dockedOverrideBtn->setStateChangedListener([this](bool state) {
         this->_dockedOverride = state;
@@ -69,14 +84,18 @@ tsl::elm::Element* Settings::createUI() {
     return frame;
 }
 
+void Settings::persist() {
+    SetFastRefreshTemperatureC(ConfigSection, this->_fastRefreshTemperatureC);
+    SetRefreshInterval(ConfigSection, KeySlowRefreshIntervalMs, this->_slowRefreshIntervalMs);
+    SetRefreshInterval(ConfigSection, KeyFastRefreshIntervalMs, this->_fastRefreshIntervalMs);
+    SetRefreshInterval(ConfigSection, KeyConfigRefreshIntervalMs, this->_configRefreshIntervalMs);
+    SetRefreshInterval(ConfigSection, KeyEnableRefreshIntervalMs, this->_enableRefreshIntervalMs);
+    SetRefreshInterval(ConfigSection, KeyDockedRefreshIntervalMs, this->_dockedRefreshIntervalMs);
+}
+
 bool Settings::handleInput(u64 keysDown, u64 keysHeld, const HidTouchState& touchPos, HidAnalogStickState leftJoyStick, HidAnalogStickState rightJoyStick) {
     if (keysDown & HidNpadButton_B) {
-        SetFastRefreshTemperatureC(ConfigSection, this->_fastRefreshTemperatureC);
-        SetRefreshInterval(ConfigSection, KeySlowRefreshIntervalMs, this->_slowRefreshIntervalMs);
-        SetRefreshInterval(ConfigSection, KeyFastRefreshIntervalMs, this->_fastRefreshIntervalMs);
-        SetRefreshInterval(ConfigSection, KeyConfigRefreshIntervalMs, this->_configRefreshIntervalMs);
-        SetRefreshInterval(ConfigSection, KeyEnableRefreshIntervalMs, this->_enableRefreshIntervalMs);
-        SetRefreshInterval(ConfigSection, KeyDockedRefreshIntervalMs, this->_dockedRefreshIntervalMs);
+        this->persist();
         g_navJump = "Settings";
         triggerExitFeedback();
         tsl::swapTo<MainMenu>();
