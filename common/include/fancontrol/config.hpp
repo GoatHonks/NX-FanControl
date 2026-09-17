@@ -45,6 +45,10 @@ bool SetDockedOverride(const char *section, bool enabled);
 u32 GetFastRefreshTemperatureC(const char *section);
 bool SetFastRefreshTemperatureC(const char *section, u32 temp);
 
+/* Incremented by every save. Readers compare it to spot changes, because the
+ * file's timestamp alone can miss a quick second save on FAT32. */
+u32 GetConfigRevision(void);
+
 u32 GetRefreshInterval(const char *section, const char *key, u32 defaultMs);
 bool SetRefreshInterval(const char *section, const char *key, u32 ms);
 
@@ -144,6 +148,15 @@ bool GetProfileForTitle(u64 titleId, u32 *outProfileId);
 bool SetProfileForTitle(u64 titleId, u32 profileId);
 bool ClearProfileForTitle(u64 titleId);
 
-/* The profile that should be in effect for a title, honouring the master
- * toggle and falling back to the selected profile. */
-u32 ResolveProfileForTitle(u64 titleId);
+/* Called by the sysmodule whenever the foreground title changes (0 = no game,
+ * or per-game profiles switched off).
+ *
+ * When an assigned game starts, the active profile becomes that game's
+ * profile and the one it replaced is remembered in the config. When the game
+ * closes, the remembered profile is restored - unless the user picked a
+ * different profile by hand while the game was running, in which case their
+ * choice is kept. Because the remembered profile is stored, a reboot or crash
+ * mid-game still restores it.
+ *
+ * Returns true if the active profile changed. */
+bool ApplyGameProfileForTitle(u64 titleId);

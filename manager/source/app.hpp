@@ -22,6 +22,7 @@ struct CurveBuffer {
     u32  count   = 0;
     bool docked  = false;
     char section[ProfileSectionSize] = {};
+    u32  profileId = 0;
 
     void bind(u32 profileId, bool isDocked);
     void load();
@@ -50,6 +51,9 @@ struct AppState {
 
     /* per-game bindings */
     TitleMapping mappings[MaxTitleMappings] = {};
+    /* Looked up once per reload, not per frame: a name lookup is several IPC
+     * calls. Empty when the name could not be read. */
+    std::string mappingNames[MaxTitleMappings];
     u32 mappingCount = 0;
     int gameCursor = 0;
     bool gameProfiles = false;

@@ -90,59 +90,6 @@ tsl::elm::Element* ProfileMenu::createUI() {
         }
     }));
 
-    /* Per-game binding. The overlay is the only place this can be captured,
-     * because it is the only part of the tool that runs while a game is in
-     * the foreground. */
-    list->addItem(new tsl::elm::CategoryHeader("Current Game", true));
-
-    auto gameToggle = new tsl::elm::ToggleListItem("Per-Game Profiles", IsGameProfilesEnabled());
-    gameToggle->setStateChangedListener([](bool state) {
-        SetGameProfilesEnabled(state);
-    });
-    list->addItem(gameToggle);
-
-    const u64 titleId = GetRunningTitleId();
-    if (titleId == 0) {
-        list->addItem(new tsl::elm::ListItem("No game running", "start a game first"));
-    } else {
-        char titleText[24];
-        snprintf(titleText, sizeof(titleText), "%016lX", titleId);
-
-        u32 boundProfile = 0;
-        const bool bound = GetProfileForTitle(titleId, &boundProfile);
-
-        list->addItem(new tsl::elm::ListItem("Title ID", titleText));
-
-        const std::string assignLabel = "Assign to " + ProfileNameOf(this->_active);
-        auto assignItem = new tsl::elm::ListItem(assignLabel, bound ? ProfileNameOf(boundProfile) : "not assigned");
-        assignItem->setClickListener([this, titleId](uint64_t keys) {
-            if (!(keys & HidNpadButton_A)) {
-                return false;
-            }
-            if (SetProfileForTitle(titleId, this->_active)) {
-                g_navJump = "Title ID";
-                tsl::swapTo<ProfileMenu>();
-            }
-            return true;
-        });
-        list->addItem(assignItem);
-
-        if (bound) {
-            auto clearItem = new tsl::elm::ListItem("Clear Assignment");
-            clearItem->setClickListener([titleId](uint64_t keys) {
-                if (!(keys & HidNpadButton_A)) {
-                    return false;
-                }
-                if (ClearProfileForTitle(titleId)) {
-                    g_navJump = "Title ID";
-                    tsl::swapTo<ProfileMenu>();
-                }
-                return true;
-            });
-            list->addItem(clearItem);
-        }
-    }
-
     list->addItem(new tsl::elm::CategoryHeader("Rename in the Manager app", true));
 
     if (!g_navJump.empty()) {

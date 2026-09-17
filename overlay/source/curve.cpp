@@ -34,6 +34,7 @@ std::string HandheldCurveButtonLabel() {
 }
 
 void CurveStore::bindToProfile(u32 id) {
+    this->_profileId = id;
     char section[ProfileSectionSize];
     GetProfileSection(id, this->_docked, section, sizeof(section));
     this->_section = section;
@@ -57,12 +58,22 @@ void BindCurvesToActiveProfile() {
 void CurveStore::loadOrDefault() {
     this->count = LoadCurve(this->sectionName(), this->points, MAX_TABLE_ENTRIES);
     if (this->count == 0) {
-        memcpy(this->points, DefaultCurve, sizeof(DefaultCurve));
-        this->count = DefaultCurveCount;
-        SaveCurve(this->sectionName(), this->points, this->count);
-        if (!this->isDockedProfile()) {
-            SetEnabled(ConfigSection, true);
+        /* An empty docked curve starts as a copy of the same profile's handheld
+         * curve - what the sysmodule falls back to anyway - rather than an
+         * unrelated built-in curve that would change fan behaviour on docking. */
+        if (this->isDockedProfile()) {
+            char handheld[ProfileSectionSize];
+            GetProfileSection(this->_profileId, false, handheld, sizeof(handheld));
+            this->count = LoadCurve(handheld, this->points, MAX_TABLE_ENTRIES);
         }
+        if (this->count == 0) {
+            memcpy(this->points, DefaultCurve, sizeof(DefaultCurve));
+            this->count = DefaultCurveCount;
+            if (!this->isDockedProfile()) {
+                SetEnabled(ConfigSection, true);
+            }
+        }
+        SaveCurve(this->sectionName(), this->points, this->count);
     }
     this->sortByTemp();
 }

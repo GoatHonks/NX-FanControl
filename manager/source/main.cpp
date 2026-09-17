@@ -5,7 +5,7 @@
  * plus naming and reordering, which need the system keyboard the overlay
  * cannot reach.
  *
- * Both write the same config.ini. The sysmodule watches that file's mtime and
+ * Both write the same config.ini. The sysmodule watches it for changes and
  * hot-reloads, so edits here take effect within a couple of seconds.
  */
 
@@ -88,7 +88,9 @@ namespace {
     /* Preset picker: chosen after the name is entered, so a new profile can
      * start from a copy or from a built-in template. */
     int  g_presetCursor = 0;
-    char g_pendingName[MaxProfileNameLength + 1] = {};
+    /* Sized for the keyboard's multi-byte output; the name is trimmed to its
+     * real limit, on a character boundary, when it is saved. */
+    char g_pendingName[0x100] = {};
 
     struct PresetChoice {
         const char *name;
@@ -425,6 +427,36 @@ namespace {
 
     /* ---- games tab ---- */
 
+    /* "Game Name [0100...]" for a binding, fitted to maxWidth. Only the name
+     * is shortened, so the title id always stays whole. Games whose name can't
+     * be read (archived or deleted) show just the id. */
+    std::string GameLabel(int index, int maxWidth, ui::Font font) {
+        char id[24];
+        FormatTitleId(g_app.mappings[index].titleId, id, sizeof(id));
+        const std::string suffix = std::string(" [") + id + "]";
+
+        std::string name = g_app.mappingNames[index];
+        if (name.empty()) {
+            return std::string("[") + id + "]";
+        }
+
+        if (ui::TextWidth(name + suffix, font) <= maxWidth) {
+            return name + suffix;
+        }
+
+        const std::string ellipsis = "...";
+        while (!name.empty() && ui::TextWidth(name + ellipsis + suffix, font) > maxWidth) {
+            /* Step back over a whole UTF-8 character, never into the middle of
+             * one: game names are often not ASCII. */
+            size_t cut = name.size() - 1;
+            while (cut > 0 && (static_cast<unsigned char>(name[cut]) & 0xC0) == 0x80) {
+                --cut;
+            }
+            name.erase(cut);
+        }
+        return name + ellipsis + suffix;
+    }
+
     void DrawGamesTab() {
         DrawCard(Margin, ContentY, ListW, ContentH);
         ui::Text_("ASSIGNED GAMES", Margin + 22, ContentY + 18, ui::FontSmall, ui::TextFaint);
@@ -448,10 +480,7 @@ namespace {
                 ui::Rect(Margin + 12, y + 10, 3, rowH - 28, ui::Accent);
             }
 
-            char titleText[24];
-            snprintf(titleText, sizeof(titleText), "%016lX", g_app.mappings[i].titleId);
-
-            ui::Text_(titleText, Margin + 30, y + 6, ui::FontSmall, sel ? ui::Text : ui::TextDim);
+            ui::Text_(GameLabel(i, ListW - 60, ui::FontSmall), Margin + 30, y + 6, ui::FontSmall, sel ? ui::Text : ui::TextDim);
             ui::Text_(g_app.profileName(g_app.mappings[i].profileId), Margin + 30, y + 26, ui::FontBody,
                       sel ? ui::Accent : ui::TextFaint);
             y += rowH;
@@ -503,9 +532,7 @@ namespace {
 
         ui::TextCentered("Remove assignment?", x + w / 2, y + 34, ui::FontHead, ui::Text);
 
-        char titleText[24];
-        snprintf(titleText, sizeof(titleText), "%016lX", g_app.mappings[g_app.gameCursor].titleId);
-        ui::TextCentered(titleText, x + w / 2, y + 86, ui::FontBody, ui::Danger);
+        ui::TextCentered(GameLabel(g_app.gameCursor, w - 48, ui::FontBody), x + w / 2, y + 86, ui::FontBody, ui::Danger);
         ui::TextCentered("The game falls back to the selected profile.", x + w / 2, y + 120, ui::FontSmall, ui::TextDim);
         ui::TextCentered("A  Remove        B  Cancel", x + w / 2, y + 158, ui::FontBody, ui::TextDim);
     }
@@ -590,7 +617,7 @@ namespace {
             char current[MaxProfileNameLength + 1];
             GetProfileName(id, current, sizeof(current));
 
-            char entered[MaxProfileNameLength + 1];
+            char entered[0x100];
             if (PromptText("Profile name", current, entered, sizeof(entered))) {
                 if (SetProfileName(id, entered)) {
                     g_app.setStatus("Renamed");

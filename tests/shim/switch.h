@@ -40,6 +40,10 @@ typedef enum {
 extern "C" {
 #endif
 
+/* Service manager, stubbed by the test harness with a reference count. */
+Result smInitialize(void);
+void   smExit(void);
+
 /* tc (thermal control) service, stubbed by the test harness. */
 Result tcInitialize(void);
 void   tcExit(void);

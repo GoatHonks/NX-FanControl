@@ -63,10 +63,36 @@ bool IsDockedOverride(const char *section) {
     return ini_getbool(section, KeyDockedOverride, 0, FC_CONFIG_INI);
 }
 
+constexpr const char *KeyConfigRevision = "config_revision";
+
+/* The profile to go back to when the current game closes (absent = nothing to
+ * restore), and the profile the game switched to, which is how a manual change
+ * made during the game is told apart from the game's own switch. */
+constexpr const char *KeyGameRestoreProfile = "game_restore_profile";
+constexpr const char *KeyGameActiveProfile  = "game_active_profile";
+
+/* Finishes a save that was cut off between removing the old config and
+ * renaming the new one into place - power loss, or the battery dying. At that
+ * moment only config.ini.tmp exists, holding the complete new config; without
+ * this every setting would appear lost. */
+static void RecoverInterruptedWrite(void) {
+    if (access(FC_CONFIG_INI, F_OK) == -1 && access(FC_CONFIG_INI_TMP, F_OK) != -1) {
+        if (rename(FC_CONFIG_INI_TMP, FC_CONFIG_INI) == 0) {
+            WriteLog("Recovered config from an interrupted save");
+        }
+    }
+}
+
+u32 GetConfigRevision(void) {
+    return static_cast<u32>(std::max(ini_getl(ConfigSection, KeyConfigRevision, 0, FC_CONFIG_INI), 0L));
+}
+
 static bool BeginConfigWrite(void) {
     if (access(FC_CONFIG_DIR, F_OK) == -1) {
         CreateDir(FC_CONFIG_DIR);
     }
+    /* Must run before the stale temporary file is removed below. */
+    RecoverInterruptedWrite();
     remove(FC_CONFIG_INI_TMP);
 
     FILE *src = fopen(FC_CONFIG_INI, "rb");
@@ -103,9 +129,18 @@ static bool BeginConfigWrite(void) {
 }
 
 static bool CommitConfigWrite(void) {
+    /* Every save bumps a revision number, so the sysmodule notices it even when
+     * the file's timestamp doesn't change: FAT32 stores modification times in
+     * 2-second steps, so two quick saves can share one, and the second would
+     * otherwise never be applied. */
+    const long revision = ini_getl(ConfigSection, KeyConfigRevision, 0, FC_CONFIG_INI_TMP);
+    ini_putl(ConfigSection, KeyConfigRevision, revision + 1, FC_CONFIG_INI_TMP);
+
     remove(FC_CONFIG_INI);
     if (rename(FC_CONFIG_INI_TMP, FC_CONFIG_INI) != 0) {
-        remove(FC_CONFIG_INI_TMP);
+        /* Keep the temporary file rather than deleting it: it holds the
+         * complete new config, and RecoverInterruptedWrite puts it in place on
+         * the next save or start-up. */
         WriteLog("CommitConfigWrite: rename failed");
         return false;
     }
@@ -325,6 +360,45 @@ bool SetActiveProfileId(u32 id) {
     return WriteConfigLong(ConfigSection, KeyActiveProfile, static_cast<long>(id), "SetActiveProfileId: ini_putl failed");
 }
 
+/* Drops a UTF-8 character cut off at the end of a string, returning the new
+ * length. Names are limited in bytes, and most non-English characters take 2-4
+ * bytes each, so a limit can land mid-character; a partial character draws as
+ * garbage, or stops the whole name from drawing. */
+static size_t TrimPartialUtf8(char *text, size_t len) {
+    if (text == NULL || len == 0) {
+        return 0;
+    }
+
+    /* Step back over continuation bytes to the start of the last character. */
+    size_t start = len;
+    while (start > 0 && len - start < 4 && (static_cast<unsigned char>(text[start - 1]) & 0xC0) == 0x80) {
+        --start;
+    }
+    if (start == 0) {
+        text[0] = 0;
+        return 0;
+    }
+
+    const unsigned char lead = static_cast<unsigned char>(text[start - 1]);
+    size_t need = 0;
+    if (lead < 0x80) {
+        need = 1;
+    } else if ((lead & 0xE0) == 0xC0) {
+        need = 2;
+    } else if ((lead & 0xF0) == 0xE0) {
+        need = 3;
+    } else if ((lead & 0xF8) == 0xF0) {
+        need = 4;
+    }
+
+    const size_t have = len - (start - 1);
+    if (need == 0 || have < need) {
+        text[start - 1] = 0;
+        return start - 1;
+    }
+    return len;
+}
+
 void GetProfileName(u32 id, char *out, size_t outSize) {
     if (out == NULL || outSize == 0) {
         return;
@@ -334,6 +408,7 @@ void GetProfileName(u32 id, char *out, size_t outSize) {
     GetProfileSection(id, false, section, sizeof(section));
 
     ini_gets(section, KeyProfileName, "", out, outSize, FC_CONFIG_INI);
+    TrimPartialUtf8(out, strlen(out));
     if (out[0] != 0) {
         return;
     }
@@ -362,6 +437,7 @@ static bool SanitizeProfileName(const char *name, char *out, size_t outSize) {
         out[len++] = static_cast<char>(c);
     }
     out[len] = 0;
+    len = TrimPartialUtf8(out, len);
 
     while (len > 0 && out[len - 1] == ' ') {
         out[--len] = 0;
@@ -492,8 +568,7 @@ bool DeleteProfile(u32 id) {
     u32 ids[MaxProfiles];
     u32 count = GetProfileIds(ids, MaxProfiles);
 
-    /* Never leave the user with no profile at all.
-     */
+    /* Never leave the user with no profile at all. */
     if (count <= 1 || !ProfileListContains(ids, count, id)) {
         return false;
     }
@@ -508,6 +583,21 @@ bool DeleteProfile(u32 id) {
 
     const bool wasActive = (GetActiveProfileId() == id);
 
+    /* Games assigned to this profile. Ids are reused - the next profile
+     * created takes the lowest free one - so leaving these behind would make
+     * those games quietly switch to an unrelated new profile. */
+    u64 assignedTitles[MaxTitleMappings];
+    u32 assignedCount = 0;
+    char key[32];
+    for (int i = 0; assignedCount < MaxTitleMappings && ini_getkey(GameProfileSection, i, key, sizeof(key), FC_CONFIG_INI) > 0; ++i) {
+        if (ini_getl(GameProfileSection, key, -1, FC_CONFIG_INI) == (long)id) {
+            assignedTitles[assignedCount++] = strtoull(key, NULL, 16);
+        }
+    }
+
+    /* Likewise a pending "restore this profile when the game closes". */
+    const bool restoresToThis = ini_getl(ConfigSection, KeyGameRestoreProfile, -1, FC_CONFIG_INI) == (long)id;
+
     char section[ProfileSectionSize];
 
     if (!BeginConfigWrite()) {
@@ -520,6 +610,16 @@ bool DeleteProfile(u32 id) {
 
     GetProfileSection(id, true, section, sizeof(section));
     ini_puts(section, NULL, NULL, FC_CONFIG_INI_TMP);
+
+    for (u32 i = 0; i < assignedCount; ++i) {
+        FormatTitleId(assignedTitles[i], key, sizeof(key));
+        ini_puts(GameProfileSection, key, NULL, FC_CONFIG_INI_TMP);
+    }
+
+    if (restoresToThis) {
+        ini_puts(ConfigSection, KeyGameRestoreProfile, NULL, FC_CONFIG_INI_TMP);
+        ini_puts(ConfigSection, KeyGameActiveProfile, NULL, FC_CONFIG_INI_TMP);
+    }
 
     if (!WritePendingProfileOrder(remaining, remainingCount)) {
         remove(FC_CONFIG_INI_TMP);
@@ -572,6 +672,11 @@ bool MoveProfile(u32 id, int delta) {
 }
 
 void EnsureProfilesInitialized(void) {
+    /* Recover first: after an interrupted save config.ini is missing, and
+     * counting profiles before recovering would find none and overwrite the
+     * real profile list with a fresh default one. */
+    RecoverInterruptedWrite();
+
     if (GetProfileCount() > 0) {
         return;
     }
@@ -664,10 +769,6 @@ u32 GetTitleMappings(TitleMapping *out, u32 maxCount) {
     return count;
 }
 
-static void FormatTitleId(u64 titleId, char *out, size_t outSize) {
-    snprintf(out, outSize, "%016lX", titleId);
-}
-
 bool GetProfileForTitle(u64 titleId, u32 *outProfileId) {
     if (titleId == 0) {
         return false;
@@ -734,14 +835,73 @@ bool SetGameProfilesEnabled(bool enabled) {
     return WriteConfigLong(ConfigSection, KeyGameProfiles, enabled ? 1 : 0, "SetGameProfilesEnabled: ini_putl failed");
 }
 
-/* Resolves which profile should be in effect for a title: its own mapping if
- * per-game profiles are on and one exists, otherwise the selected profile. */
-u32 ResolveProfileForTitle(u64 titleId) {
+bool ApplyGameProfileForTitle(u64 titleId) {
+    const long pending = ini_getl(ConfigSection, KeyGameRestoreProfile, -1, FC_CONFIG_INI);
+    const u32  active  = GetActiveProfileId();
+
     u32 mapped = 0;
-    if (IsGameProfilesEnabled() && GetProfileForTitle(titleId, &mapped)) {
-        return mapped;
+    const bool isMapped = titleId != 0 && IsGameProfilesEnabled() && GetProfileForTitle(titleId, &mapped);
+
+    if (isMapped) {
+        if (mapped == active) {
+            return false;
+        }
+
+        /* All three keys go in one write, so the config never holds a switch
+         * without the matching restore point. */
+        if (!BeginConfigWrite()) {
+            return false;
+        }
+
+        bool ok = ini_putl(ConfigSection, KeyActiveProfile, (long)mapped, FC_CONFIG_INI_TMP)
+               && ini_putl(ConfigSection, KeyGameActiveProfile, (long)mapped, FC_CONFIG_INI_TMP);
+
+        /* Only remember the profile we are replacing if nothing is remembered
+         * yet. Going straight from one assigned game to another must still
+         * return to the profile from before the first game. */
+        if (ok && pending < 0) {
+            ok = ini_putl(ConfigSection, KeyGameRestoreProfile, (long)active, FC_CONFIG_INI_TMP);
+        }
+
+        if (!ok) {
+            remove(FC_CONFIG_INI_TMP);
+            WriteLog("ApplyGameProfileForTitle: switching failed");
+            return false;
+        }
+        return CommitConfigWrite();
     }
-    return GetActiveProfileId();
+
+    /* No assigned game in the foreground: restore, if there is anything to. */
+    if (pending < 0) {
+        return false;
+    }
+
+    const long gameProfile = ini_getl(ConfigSection, KeyGameActiveProfile, -1, FC_CONFIG_INI);
+
+    /* If the active profile is no longer the one the game switched to, the
+     * user chose another by hand; keep theirs. And never restore a profile
+     * that has since been deleted. */
+    const bool restore = (long)active == gameProfile
+                      && pending < (long)MaxProfiles
+                      && ProfileExists((u32)pending);
+
+    if (!BeginConfigWrite()) {
+        return false;
+    }
+
+    bool ok = true;
+    if (restore) {
+        ok = ini_putl(ConfigSection, KeyActiveProfile, pending, FC_CONFIG_INI_TMP);
+    }
+    ini_puts(ConfigSection, KeyGameRestoreProfile, NULL, FC_CONFIG_INI_TMP);
+    ini_puts(ConfigSection, KeyGameActiveProfile, NULL, FC_CONFIG_INI_TMP);
+
+    if (!ok) {
+        remove(FC_CONFIG_INI_TMP);
+        WriteLog("ApplyGameProfileForTitle: restoring failed");
+        return false;
+    }
+    return CommitConfigWrite() && restore;
 }
 
 /* ---- Sensor selection ---- */

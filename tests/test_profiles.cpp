@@ -30,6 +30,13 @@ Result I2cReadRegHandler16(u8 reg, I2cDevice dev, u16 *out) {
     (void)reg; (void)dev; (void)out;
     return 1;
 }
+/* Counts open sm sessions, so tests can check every smInitialize is matched
+ * by an smExit. The sysmodule closes sm after start-up, so code that opens it
+ * for a connect must also close it again. */
+static int g_smRefs = 0;
+Result smInitialize(void) { ++g_smRefs; return 0; }
+void   smExit(void) { --g_smRefs; }
+
 Result tcInitialize(void) { return 1; }
 void   tcExit(void) {}
 Result tcGetSkinTemperatureMilliC(s32 *skinTemp) { (void)skinTemp; return 1; }
@@ -385,33 +392,100 @@ static void TestGameMappings(void) {
     CHECK(!SetProfileForTitle(0, quiet), "cannot bind title id zero");
 }
 
-static void TestResolveAndStaleMappings(void) {
-    printf("profile resolution + stale mappings\n");
+static void TestGameProfileSwitching(void) {
+    printf("per-game switching and restore\n");
+
+    const u64 game  = 0x0100ABCDEF012000ULL;
+    const u64 game2 = 0x0100ABCDEF034000ULL;
+
+    /* The reported scenario: Default active, game assigned to Profile 2. */
     ResetConfig();
     EnsureProfilesInitialized();
-    u32 quiet = 0;
-    CreateProfile("Quiet", 0, &quiet);
+    u32 p2 = 0;
+    CreateProfile("Profile 2", 0, &p2);
     SetActiveProfileId(0);
-
-    const u64 game = 0x0100ABCDEF012000ULL;
-    SetProfileForTitle(game, quiet);
-
-    /* Master toggle off: mapping is ignored. */
-    SetGameProfilesEnabled(false);
-    CHECK(!IsGameProfilesEnabled(), "toggle reads back false");
-    CHECK(ResolveProfileForTitle(game) == 0, "falls back to selected profile when disabled, got %u", ResolveProfileForTitle(game));
-
+    SetProfileForTitle(game, p2);
     SetGameProfilesEnabled(true);
-    CHECK(IsGameProfilesEnabled(), "toggle reads back true");
-    CHECK(ResolveProfileForTitle(game) == quiet, "uses mapping when enabled, got %u", ResolveProfileForTitle(game));
-    CHECK(ResolveProfileForTitle(0) == 0, "no running title falls back to selected");
-    CHECK(ResolveProfileForTitle(0x999) == 0, "unmapped title falls back to selected");
 
-    /* Deleting the bound profile must not strand the game on a dead id. */
-    DeleteProfile(quiet);
+    CHECK(ApplyGameProfileForTitle(game), "starting the game switches profile");
+    CHECK(GetActiveProfileId() == p2, "active becomes the game's profile, got %u", GetActiveProfileId());
+    CHECK(!ApplyGameProfileForTitle(game), "re-checking the same game changes nothing");
+
+    CHECK(ApplyGameProfileForTitle(0), "closing the game restores");
+    CHECK(GetActiveProfileId() == 0, "active is back to Default, got %u", GetActiveProfileId());
+    CHECK(!ApplyGameProfileForTitle(0), "nothing left to restore afterwards");
+    CHECK(GetActiveProfileId() == 0, "still Default, got %u", GetActiveProfileId());
+
+    /* Restores whatever was active, not Default specifically. */
+    u32 p3 = 0;
+    CreateProfile("Profile 3", 0, &p3);
+    SetActiveProfileId(p3);
+    ApplyGameProfileForTitle(game);
+    CHECK(GetActiveProfileId() == p2, "switched from Profile 3, got %u", GetActiveProfileId());
+    ApplyGameProfileForTitle(0);
+    CHECK(GetActiveProfileId() == p3, "restored Profile 3, got %u", GetActiveProfileId());
+
+    /* A manual change during the game is kept when the game closes. */
+    SetActiveProfileId(0);
+    ApplyGameProfileForTitle(game);
+    SetActiveProfileId(p3);
+    CHECK(!ApplyGameProfileForTitle(0), "no restore over a manual change");
+    CHECK(GetActiveProfileId() == p3, "manual choice kept, got %u", GetActiveProfileId());
+    CHECK(!ApplyGameProfileForTitle(0), "and nothing stays pending, got %u", GetActiveProfileId());
+
+    /* Straight from one assigned game to another returns to the original. */
+    SetProfileForTitle(game2, p3);
+    SetActiveProfileId(0);
+    ApplyGameProfileForTitle(game);
+    ApplyGameProfileForTitle(game2);
+    CHECK(GetActiveProfileId() == p3, "second game's profile active, got %u", GetActiveProfileId());
+    ApplyGameProfileForTitle(0);
+    CHECK(GetActiveProfileId() == 0, "back to the profile from before the first game, got %u", GetActiveProfileId());
+
+    /* An unassigned game, or the feature switched off, changes nothing. */
+    CHECK(!ApplyGameProfileForTitle(0x0100000000999000ULL), "unassigned game ignored");
+    CHECK(GetActiveProfileId() == 0, "unassigned game left Default, got %u", GetActiveProfileId());
+    SetGameProfilesEnabled(false);
+    CHECK(!ApplyGameProfileForTitle(game), "switched off: assigned game ignored");
+    CHECK(GetActiveProfileId() == 0, "switched off: still Default, got %u", GetActiveProfileId());
+    SetGameProfilesEnabled(true);
+
+    /* Turning the feature off mid-game still restores: the sysmodule then
+     * reports "no game". */
+    ApplyGameProfileForTitle(game);
+    SetGameProfilesEnabled(false);
+    CHECK(ApplyGameProfileForTitle(0), "switched off mid-game restores");
+    CHECK(GetActiveProfileId() == 0, "restored after switching off, got %u", GetActiveProfileId());
+    SetGameProfilesEnabled(true);
+
+    /* A game assigned to the profile already active needs no switch, and
+     * leaves nothing to restore. */
+    SetActiveProfileId(p2);
+    CHECK(!ApplyGameProfileForTitle(game), "already on the game's profile: no switch");
+    CHECK(!ApplyGameProfileForTitle(0), "and no restore on close");
+    CHECK(GetActiveProfileId() == p2, "still Profile 2, got %u", GetActiveProfileId());
+
+    /* The profile to restore was deleted mid-game: don't restore a dead id. */
+    SetActiveProfileId(p3);
+    ApplyGameProfileForTitle(game);
+    DeleteProfile(p3);
+    CHECK(!ApplyGameProfileForTitle(0), "deleted restore target is not restored");
+    CHECK(ProfileExists(GetActiveProfileId()), "active is still a live profile, got %u", GetActiveProfileId());
+    CHECK(GetActiveProfileId() == p2, "stays on the game's profile, got %u", GetActiveProfileId());
+
+    /* The restore point is stored in the config, so a restart mid-game (the
+     * sysmodule starting again with no game running) still restores. */
+    SetActiveProfileId(0);
+    ApplyGameProfileForTitle(game);
+    CHECK(GetActiveProfileId() == p2, "in game before the 'restart', got %u", GetActiveProfileId());
+    CHECK(ApplyGameProfileForTitle(0), "first check after restart restores");
+    CHECK(GetActiveProfileId() == 0, "Default after restart, got %u", GetActiveProfileId());
+
+    /* Deleting a game's profile removes the assignment rather than leaving the
+     * game pointing at a dead id. */
+    DeleteProfile(p2);
     CHECK(!GetProfileForTitle(game, NULL), "mapping to deleted profile is not reported");
-    CHECK(ProfileExists(ResolveProfileForTitle(game)), "resolution still yields a live profile");
-
+    CHECK(!ApplyGameProfileForTitle(game), "game with a deleted profile switches nothing");
     TitleMapping maps[MaxTitleMappings];
     CHECK(GetTitleMappings(maps, MaxTitleMappings) == 0, "stale mapping omitted from enumeration");
 }
@@ -619,10 +693,116 @@ static void TestHorizonOcSensors(void) {
     /* A NULL destination must never be written through. */
     CHECK(!ReadSensor(FanSensor_Cpu, NULL), "NULL out pointer is rejected");
 
+    /* Connecting to tc or Horizon OC opens sm for the connect only. A
+     * connect that fails must still close it, or sessions leak. */
+    CHECK(g_smRefs == 0, "every sm session opened by the sensor reads was closed, %d left open", g_smRefs);
+
     /* Selecting an unavailable sensor is allowed and persists; the sysmodule
      * falls back to SoC at read time rather than refusing the setting. */
     CHECK(SetFanSensor(FanSensor_Cpu), "CPU is still selectable without Horizon OC");
     CHECK(GetFanSensor() == FanSensor_Cpu, "selection persists, got %u", GetFanSensor());
+}
+
+/* True if text is complete UTF-8: no character cut off part-way. */
+static bool IsCompleteUtf8(const char *text) {
+    for (const unsigned char *p = (const unsigned char *)text; *p != 0;) {
+        size_t need;
+        if (*p < 0x80) {
+            need = 1;
+        } else if ((*p & 0xE0) == 0xC0) {
+            need = 2;
+        } else if ((*p & 0xF0) == 0xE0) {
+            need = 3;
+        } else if ((*p & 0xF8) == 0xF0) {
+            need = 4;
+        } else {
+            return false;
+        }
+        for (size_t i = 1; i < need; ++i) {
+            if ((p[i] & 0xC0) != 0x80) {
+                return false;
+            }
+        }
+        p += need;
+    }
+    return true;
+}
+
+static void TestConfigRobustness(void) {
+    printf("config robustness (revision, recovery, deletes, names)\n");
+
+    /* Every save bumps the revision, so the sysmodule notices saves whose
+     * timestamp doesn't change. */
+    ResetConfig();
+    EnsureProfilesInitialized();
+    const u32 r0 = GetConfigRevision();
+    SetEnabled(ConfigSection, true);
+    const u32 r1 = GetConfigRevision();
+    SetEnabled(ConfigSection, true);
+    const u32 r2 = GetConfigRevision();
+    CHECK(r1 == r0 + 1, "a save bumps the revision (%u -> %u)", r0, r1);
+    CHECK(r2 == r1 + 1, "an identical second save still bumps it (%u -> %u)", r1, r2);
+
+    /* A save interrupted between removing config.ini and renaming the new one
+     * into place leaves only the temporary file. Start-up must restore it
+     * rather than treat the config as empty. */
+    u32 quiet = 0;
+    CreateProfile("Quiet", 0, &quiet);
+    CHECK(rename(FC_CONFIG_INI, FC_CONFIG_INI_TMP) == 0, "simulate an interrupted save");
+    EnsureProfilesInitialized();
+    CHECK(access(FC_CONFIG_INI, F_OK) == 0, "config.ini restored");
+    CHECK(GetProfileCount() == 2, "both profiles survive, got %u", GetProfileCount());
+    CHECK(NameOf(quiet) == "Quiet", "profile name survives, got '%s'", NameOf(quiet).c_str());
+
+    /* Recovery also happens on the next save, not only at start-up. */
+    CHECK(rename(FC_CONFIG_INI, FC_CONFIG_INI_TMP) == 0, "simulate another interrupted save");
+    CHECK(SetEnabled(ConfigSection, true), "a later save still succeeds");
+    CHECK(GetProfileCount() == 2, "profiles survive a save after interruption, got %u", GetProfileCount());
+
+    /* Deleting a profile removes its game assignments. Ids are reused, so a
+     * leftover assignment would point at the next new profile. */
+    const u64 game = 0x0100AAAABBBBC000ULL;
+    SetGameProfilesEnabled(true);
+    SetProfileForTitle(game, quiet);
+    SetActiveProfileId(0);
+    DeleteProfile(quiet);
+    u32 reused = 99;
+    CreateProfile("Unrelated", 0, &reused);
+    CHECK(reused == quiet, "the new profile reuses the deleted id (%u)", reused);
+    CHECK(!GetProfileForTitle(game, NULL), "the game is not assigned to the unrelated new profile");
+    CHECK(!ApplyGameProfileForTitle(game), "and launching it switches nothing");
+    CHECK(GetActiveProfileId() == 0, "still Default, got %u", GetActiveProfileId());
+
+    /* Deleting the profile a game would restore to clears that restore, so it
+     * can't restore into a new profile that reuses the id. */
+    u32 before = 0;
+    u32 gamesProfile = 0;
+    CreateProfile("Before", 0, &before);
+    CreateProfile("Game", 0, &gamesProfile);
+    SetProfileForTitle(game, gamesProfile);
+    SetActiveProfileId(before);
+    ApplyGameProfileForTitle(game);
+    CHECK(GetActiveProfileId() == gamesProfile, "in game");
+    DeleteProfile(before);
+    u32 reused2 = 99;
+    CreateProfile("Also unrelated", 0, &reused2);
+    CHECK(reused2 == before, "new profile reuses the restore target's id (%u)", reused2);
+    CHECK(!ApplyGameProfileForTitle(0), "closing the game does not restore into it");
+    CHECK(GetActiveProfileId() == gamesProfile, "stays on the game's profile, got %u", GetActiveProfileId());
+
+    /* Names are limited in bytes; multi-byte characters must never be cut
+     * part-way, or the name draws as garbage or not at all. "a" plus
+     * three-byte characters puts the byte limit mid-character. */
+    u32 named = 0;
+    CreateProfile("Named", 0, &named);
+    const char *japanese = "a\xE3\x83\x86\xE3\x82\xB9\xE3\x83\x88\xE3\x83\x86\xE3\x82\xB9\xE3\x83\x88"
+                           "\xE3\x83\x86\xE3\x82\xB9\xE3\x83\x88\xE3\x83\x86\xE3\x82\xB9\xE3\x83\x88";
+    CHECK(SetProfileName(named, japanese), "long non-English name accepted");
+    const std::string stored = NameOf(named);
+    CHECK(stored.size() <= MaxProfileNameLength, "fits the limit, %zu bytes", stored.size());
+    CHECK(IsCompleteUtf8(stored.c_str()), "no character cut off part-way");
+    CHECK(stored.size() == 22, "trimmed back to the last whole character, got %zu bytes", stored.size());
+    CHECK(stored[0] == 'a', "the start of the name is kept");
 }
 
 static void TestDisplayRounding(void) {
@@ -669,6 +849,7 @@ int main(void) {
     printf("=== NX-FanControl profile layer tests ===\n\n");
 
     TestDisplayRounding();
+    TestConfigRobustness();
     TestSectionMapping();
     TestFreshInit();
     TestLegacyMigration();
@@ -682,7 +863,7 @@ int main(void) {
     TestCorruptOrder();
     TestCurveRoundTrip();
     TestGameMappings();
-    TestResolveAndStaleMappings();
+    TestGameProfileSwitching();
     TestPresets();
     TestDefaultBecomesStock();
     TestDefaultIsEditable();

@@ -53,7 +53,17 @@ namespace {
 
         g_hocTried   = true;
         g_hocLastTry = now;
-        g_hocOpen    = R_SUCCEEDED(hocclkIpcInitialize());
+
+        /* The sysmodule closes its service-manager session once start-up is
+         * done, and connecting to a service needs one. Open it just for the
+         * connect: the service session itself stays valid afterwards. sm is
+         * reference counted, so this is harmless where sm is already open. */
+        if (R_FAILED(smInitialize())) {
+            return false;
+        }
+        g_hocOpen = R_SUCCEEDED(hocclkIpcInitialize());
+        smExit();
+
         return g_hocOpen;
     }
 
@@ -95,16 +105,45 @@ namespace {
         return true;
     }
 
-    bool ReadSkinTemperature(float *outCelsius) {
-        /* tc is opened per call so this works from the sysmodule, the overlay
-         * and the manager without any of them owning the session. */
-        if (R_FAILED(tcInitialize())) {
+    /* tc is kept open rather than reconnected per read: the sysmodule reads
+     * the curve sensor every 25-50ms, and a connect per read would be several
+     * IPC round-trips each time. A failed read drops the session so the next
+     * attempt reconnects, with the same back-off as Horizon OC. */
+    bool g_tcOpen    = false;
+    bool g_tcTried   = false;
+    u64  g_tcLastTry = 0;
+
+    bool EnsureTcOpen(void) {
+        if (g_tcOpen) {
+            return true;
+        }
+
+        const u64 now = armGetSystemTick();
+        if (g_tcTried && ElapsedNs(now, g_tcLastTry) < HocRetryNs) {
             return false;
         }
-        ON_SCOPE_EXIT { tcExit(); };
+        g_tcTried   = true;
+        g_tcLastTry = now;
+
+        /* See EnsureHocOpen: sm is only needed for the connect itself. */
+        if (R_FAILED(smInitialize())) {
+            return false;
+        }
+        g_tcOpen = R_SUCCEEDED(tcInitialize());
+        smExit();
+
+        return g_tcOpen;
+    }
+
+    bool ReadSkinTemperature(float *outCelsius) {
+        if (!EnsureTcOpen()) {
+            return false;
+        }
 
         s32 milliC = 0;
         if (R_FAILED(tcGetSkinTemperatureMilliC(&milliC))) {
+            tcExit();
+            g_tcOpen = false;
             return false;
         }
 

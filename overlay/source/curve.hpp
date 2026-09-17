@@ -32,6 +32,7 @@ public:
 
 private:
     bool _docked = false;
+    u32 _profileId = 0;
     std::string _section = CurveSection;
 };
 

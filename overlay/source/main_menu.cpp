@@ -2,6 +2,7 @@
 #include "curve_menu.hpp"
 #include "settings.hpp"
 #include "profile_menu.hpp"
+#include "game_menu.hpp"
 #include <cmath>
 
 MainMenu::MainMenu() {
@@ -58,6 +59,17 @@ tsl::elm::Element* MainMenu::createUI() {
         return false;
     });
     list->addItem(this->_profileBtn);
+
+    auto gameProfilesBtn = new tsl::elm::ListItem(GameProfilesRowLabel, ">");
+    gameProfilesBtn->setClickListener([](uint64_t keys) {
+        if (keys & HidNpadButton_A) {
+            g_navJump.clear();
+            tsl::swapTo<GameProfilesMenu>();
+            return true;
+        }
+        return false;
+    });
+    list->addItem(gameProfilesBtn);
 
     list->addItem(new tsl::elm::CategoryHeader("Settings", true));
     this->_settingBtn->setClickListener([](uint64_t keys) {

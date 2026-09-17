@@ -30,15 +30,26 @@ namespace {
 /* ---- CurveBuffer ---- */
 
 void CurveBuffer::bind(u32 profileId, bool isDocked) {
-    this->docked = isDocked;
+    this->docked    = isDocked;
+    this->profileId = profileId;
     GetProfileSection(profileId, isDocked, this->section, sizeof(this->section));
 }
 
 void CurveBuffer::load() {
     this->count = LoadCurve(this->section, this->points, MAX_TABLE_ENTRIES);
     if (this->count == 0) {
-        memcpy(this->points, DefaultCurve, sizeof(DefaultCurve));
-        this->count = DefaultCurveCount;
+        /* An empty docked curve starts as a copy of the same profile's handheld
+         * curve - what the sysmodule falls back to anyway - rather than an
+         * unrelated built-in curve. */
+        if (this->docked) {
+            char handheld[ProfileSectionSize];
+            GetProfileSection(this->profileId, false, handheld, sizeof(handheld));
+            this->count = LoadCurve(handheld, this->points, MAX_TABLE_ENTRIES);
+        }
+        if (this->count == 0) {
+            memcpy(this->points, DefaultCurve, sizeof(DefaultCurve));
+            this->count = DefaultCurveCount;
+        }
         SaveCurve(this->section, this->points, this->count);
     }
     SortFanCurveTable(this->points, this->count);
@@ -189,6 +200,11 @@ bool PromptText(const char *guide, const char *initial, char *out, size_t outSiz
 void AppState::reloadMappings() {
     this->mappingCount = GetTitleMappings(this->mappings, MaxTitleMappings);
     this->gameProfiles = IsGameProfilesEnabled();
+
+    char name[0x200];
+    for (u32 i = 0; i < this->mappingCount; ++i) {
+        this->mappingNames[i] = GetTitleName(this->mappings[i].titleId, name, sizeof(name)) ? name : "";
+    }
 
     if (this->mappingCount == 0) {
         this->gameCursor = 0;

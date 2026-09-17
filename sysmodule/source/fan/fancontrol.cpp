@@ -71,47 +71,57 @@ static bool LoadCurveAlloc(const char *curveSection, TemperaturePoint **outTable
 
 static bool SwapCurveTable(const char *curveSection, FanHysteresisState *fanState);
 
-/* Profile currently in effect: the running game's mapping when per-game
- * profiles are on, otherwise the manually selected profile. */
-static u32 GetEffectiveProfileId() {
-    return ResolveProfileForTitle(ctx->titleId);
-}
-
 static const char *GetProfileCurve() {
-    /* Resolved fresh on every call so that a profile switch written by the
-     * overlay or the manager NRO is picked up on the next config reload. */
+    /* Resolved fresh on every call so that a profile switch - written by the
+     * overlay, the manager, or by a game starting or closing - is picked up on
+     * the next config reload. */
     static char section[ProfileSectionSize];
-    GetProfileSection(GetEffectiveProfileId(), ctx->isDocked, section, sizeof(section));
+    const u32 profile = GetActiveProfileId();
+    GetProfileSection(profile, ctx->isDocked, section, sizeof(section));
+
+    /* A profile can exist without a docked curve (created from one that had
+     * none). Use its handheld curve rather than failing: at start-up a failed
+     * load leaves no table at all, which switches custom fan control off. */
+    if (ctx->isDocked && GetPointCount(section) == 0) {
+        GetProfileSection(profile, false, section, sizeof(section));
+    }
     return section;
 }
 
-static void RefreshRunningTitle(FanHysteresisState *fanState) {
-    if (!ctx->gameProfiles) {
-        /* Forget any remembered title so turning the feature back on
-         * re-resolves from scratch. */
-        ctx->titleId = 0;
-        return;
-    }
+/* Title id meaning "not checked yet". Starting from this rather than 0 makes
+ * the very first check always run, so a restore left pending by a reboot or
+ * crash mid-game is applied as soon as the sysmodule is up. */
+constexpr u64 TitleUnknown = ~0ULL;
 
+static void RefreshRunningTitle(FanHysteresisState *fanState) {
     static u64 lastCheckTime = armGetSystemTick();
     if (!IntervalElapsed(&lastCheckTime, MsToNs(ctx->refreshConfig.titleRefreshIntervalMs))) {
         return;
     }
 
-    const u64 titleId = GetRunningTitleId();
-    if (titleId == ctx->titleId) {
-        return;
+    /* With the feature off, report "no game": that restores anything still
+     * pending once, and after that the title stays 0 and nothing happens. */
+    const u64 titleId = ctx->gameProfiles ? GetRunningTitleId() : 0;
+
+    /* Also act when the running game's assignment changes, so assigning,
+     * reassigning or clearing a game while it is running takes effect at once
+     * instead of on the next launch. A manual profile change doesn't touch the
+     * assignment, so it still isn't overridden. */
+    s32 mapping = -1;
+    u32 mapped  = 0;
+    if (titleId != 0 && GetProfileForTitle(titleId, &mapped)) {
+        mapping = static_cast<s32>(mapped);
     }
 
-    const u32 before = GetEffectiveProfileId();
-    ctx->titleId = titleId;
-    const u32 after = GetEffectiveProfileId();
+    if (titleId == ctx->titleId && mapping == ctx->titleMapping) {
+        return;
+    }
+    ctx->titleId      = titleId;
+    ctx->titleMapping = mapping;
 
-    /* Only touch the fan table when the resolved profile actually differs;
-     * most game launches map to the same profile. */
-    if (before != after) {
+    if (ApplyGameProfileForTitle(titleId)) {
         SwapCurveTable(GetProfileCurve(), fanState);
-        WriteLog("Switched profile for running title");
+        WriteLog(titleId != 0 ? "Game started, switched to its profile" : "Game closed, restored profile");
     }
 }
 
@@ -152,11 +162,11 @@ void InitContext(Context *_ctx) {
     /* Adopts any pre-profile config as profile 0 on first boot after upgrade. */
     EnsureProfilesInitialized();
 
-    /* Keeps the Default profile pinned to the reference curves, migrating any
-     * curve the user had there into an editable profile on first run. */
+    /* Seeds the Default profile with the Stock-like curves, once. */
     EnsureDefaultProfileIsStock();
 
-    ctx->titleId        = 0;
+    ctx->titleId        = TitleUnknown;
+    ctx->titleMapping   = -1;
     ctx->dockedOverride = IsDockedOverride(ConfigSection);
     ctx->isDocked       = ctx->dockedOverride && IsDocked();
 
@@ -189,25 +199,34 @@ static time_t GetConfigMTime(const char *path) {
     return GetConfigStat(path, &mtime, &size) ? mtime : 0;
 }
 
-static bool TryReloadConfig(const char *configSection, FanHysteresisState *fanState, time_t &lastMTime) {
+static bool TryReloadConfig(const char *configSection, FanHysteresisState *fanState, time_t &lastMTime, u32 &lastRevision) {
     time_t mtime = 0;
     off_t  size  = 0;
-    if (!GetConfigStat(FC_CONFIG_INI, &mtime, &size) || mtime == 0 || mtime == lastMTime) {
+    if (!GetConfigStat(FC_CONFIG_INI, &mtime, &size) || mtime == 0) {
         return false;
     }
     (void) size;
 
-    lastMTime = mtime;
+    /* A change shows as a new revision (every save by this tool bumps it) or a
+     * new timestamp (catches edits made by hand). The revision is what makes
+     * this reliable: FAT32 timestamps move in 2-second steps, so a second quick
+     * save can keep the same timestamp and would otherwise be missed. */
+    const u32 revision = GetConfigRevision();
+    if (mtime == lastMTime && revision == lastRevision) {
+        return false;
+    }
+    lastMTime    = mtime;
+    lastRevision = revision;
 
     ctx->dockedOverride = IsDockedOverride(configSection);
     ctx->isDocked       = ctx->dockedOverride && IsDocked();
     LoadConfig();
 
     if (!SwapCurveTable(GetProfileCurve(), fanState)) {
-        static time_t lastBadMTime = 0;
-        if (mtime != lastBadMTime) {
+        static u32 lastBadRevision = ~0U;
+        if (revision != lastBadRevision) {
             WriteLog("Config reload failed, keeping current curve");
-            lastBadMTime = mtime;
+            lastBadRevision = revision;
         }
         return false;
     }
@@ -216,11 +235,12 @@ static bool TryReloadConfig(const char *configSection, FanHysteresisState *fanSt
 }
 
 static void RefreshConfig(const char *configSection, FanHysteresisState *fanState) {
-    static time_t lastCfgMTime  = GetConfigMTime(FC_CONFIG_INI);
-    static u64    lastCheckTime = armGetSystemTick();
+    static time_t lastCfgMTime   = GetConfigMTime(FC_CONFIG_INI);
+    static u32    lastRevision   = GetConfigRevision();
+    static u64    lastCheckTime  = armGetSystemTick();
 
     if (IntervalElapsed(&lastCheckTime, MsToNs(ctx->refreshConfig.configRefreshIntervalMs))) {
-        if (TryReloadConfig(configSection, fanState, lastCfgMTime)) {
+        if (TryReloadConfig(configSection, fanState, lastCfgMTime, lastRevision)) {
             WriteLog("Config reloaded");
         }
     }
@@ -282,15 +302,30 @@ void LoopFanController() {
             }
         }
 
+        /* Fall back to the SoC sensor before giving up, so a configured source
+         * that stops responding cannot strand the fan. The log only records
+         * changes of state: this loop runs every 25-50ms, and writing on every
+         * pass would flood the SD card. */
+        enum ReadState { Read_Ok, Read_FellBack, Read_Failed };
+        static ReadState lastState = Read_Ok;
+        ReadState state = Read_Ok;
+
         if (!readOk) {
-            /* Fall back to the SoC sensor before giving up, so a configured
-             * source that stops responding cannot strand the fan. */
             if (ReadSensor(FanSensor_Soc, &tempC)) {
-                WriteLog("Configured sensor failed, using SoC");
+                state = Read_FellBack;
             } else {
-                WriteLog("All temperature reads failed");
+                state = Read_Failed;
                 tempC = 70.0f;
             }
+        }
+
+        if (state != lastState) {
+            switch (state) {
+                case Read_FellBack: WriteLog("Configured sensor unavailable, using SoC"); break;
+                case Read_Failed:   WriteLog("All temperature reads failed"); break;
+                default:            WriteLog("Configured sensor readable again"); break;
+            }
+            lastState = state;
         }
 
         float target = UpdateFanHysteresis(&fanState, tempC);

@@ -91,9 +91,10 @@ Bindings are made **from the overlay**, because it is the only part of the tool
 that runs while a game is in the foreground:
 
 1. Launch the game
-2. Open the overlay → **Profile**
-3. Enable **Per-Game Profiles**, pick the profile you want active, then
-   **Assign**
+2. Open the overlay and select **Per-Game Profiles**, under **Profile**. The
+   running game is listed by name
+3. Select it and pick a profile (with only one profile, it's assigned
+   directly). Assigning turns the **Per-Game Profiles** switch on if it was off
 
 The Manager's **Games** tab lists every binding and can remove them. The
 sysmodule re-checks the running title every couple of seconds.

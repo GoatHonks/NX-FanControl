@@ -16,6 +16,7 @@ struct Context {
     bool gameProfiles;
     u32  sensor;
     u64  titleId;
+    s32  titleMapping;   /* profile the running game is assigned to, -1 if none */
 
     struct {
         u32 fastRefreshTemperatureC;
