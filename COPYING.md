@@ -21,7 +21,7 @@ under MIT can still take it under those terms.
 | Component | Licence | Notes |
 |---|---|---|
 | NX-FanControl original code | MIT | © 2024 Zathawo, © 2025 Dominatorul, © 2026 Lightos_. See [LICENSE.MIT](./LICENSE.MIT). Includes `overlay/source/pwm.c`/`pwm.h`, which the Manager also carries a copy of. |
-| Changes and additions in this fork | GPLv2 | Written by Claude Code at the direction of the fork's maintainer; see the README. |
+| Changes and additions in this fork | GPLv2 | © 2026 GoatHonks. Written by Claude Code at the direction of the fork's maintainer; see the README. Includes NXFanControl Manager. |
 | `common/include/fancontrol/tmp451.hpp` | GPLv2 | SoC/PCB temperature driver, © 2018 CTCaer. |
 | `overlay/lib/libultrahand` (submodule) | GPLv2 | Tesla overlay library, ppkantorski. |
 | `common/libs/minIni` | Apache 2.0, with a linking exception | © CompuPhase. See below. |

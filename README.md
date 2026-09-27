@@ -302,6 +302,7 @@ suite that runs on your PC with a normal `gcc` (not devkitPro):
 - **Souldbminer, Lightos_ and Horizon OC contributors** — Horizon OC IPC client,
   used for the CPU/GPU/RAM temperatures
 - **Status-Monitor-Overlay** — reference for how those temperatures are obtained
+- **GoatHonks** — this fork and NXFanControl Manager (direction and all testing)
 - **Claude Code** (Anthropic) — wrote all the changes in this fork
 
 ## License
